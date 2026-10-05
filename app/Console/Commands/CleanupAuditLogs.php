@@ -3,7 +3,6 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use App\Models\AuditLog;
 use Carbon\Carbon;
 
 class CleanupAuditLogs extends Command
@@ -13,7 +12,7 @@ class CleanupAuditLogs extends Command
      *
      * @var string
      */
-    protected $signature = 'audit:cleanup {--days=180 : The number of days to keep audit logs}';
+    protected $signature = 'audit:cleanup {--days= : Days of report audit history to keep (default: config audit.retention_days)}';
 
     /**
      * The console command description.
@@ -27,12 +26,16 @@ class CleanupAuditLogs extends Command
      */
     public function handle()
     {
-        $days = $this->option('days');
+        $days = (int) ($this->option('days') ?: config('audit.retention_days', 1825));
+        if ($days < 30) {
+            $this->error('Refusing to keep less than 30 days of audit history.');
+            return self::FAILURE;
+        }
         $date = Carbon::now()->subDays($days);
         
         $this->info("Deleting audit logs older than {$days} days ({$date->toDateString()})...");
         
-        $deletedCount = AuditLog::where('created_at', '<', $date)->delete();
+        $deletedCount = \App\Models\TestReportAudit::where('created_at', '<', $date)->delete();
         
         $this->info("Successfully deleted {$deletedCount} old audit logs.");
     }

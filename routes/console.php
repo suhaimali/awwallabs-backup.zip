@@ -7,9 +7,9 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// Clean up audit logs older than 180 days (6 months) every day at midnight
+// Remove report audit history older than AUDIT_RETENTION_DAYS (default 5 years), daily at midnight
 use Illuminate\Support\Facades\Schedule;
-Schedule::command('audit:cleanup --days=180')->daily();
+Schedule::command('audit:cleanup')->daily();
 
 // Secure daily database backup
 Schedule::command('backup:database')->dailyAt('00:30');
