@@ -1,5 +1,5 @@
-version: '3.8'
-
+# Values come from a `.env` file next to this compose file (docker compose reads it
+# automatically). Copy .env.example to .env and fill in the secrets before `docker compose up`.
 services:
   laravel-app:
     build:
@@ -10,17 +10,22 @@ services:
     environment:
       - APP_ENV=production
       - APP_DEBUG=false
-      - APP_URL=https://awwallabs.com # Change to your actual domain
+      - APP_KEY=${APP_KEY:?Set APP_KEY in .env (php artisan key:generate --show)}
+      - APP_URL=${APP_URL:-https://awwallabs.com}
       - DB_CONNECTION=mysql
       - DB_HOST=laravel-mysql
       - DB_PORT=3306
-      - DB_DATABASE=awwal_lab
-      - DB_USERNAME=awwal
-      - DB_PASSWORD=awwal
-      - RUN_SEEDERS=false # Set to true to run migrations + seeders on first boot
-      # Add other custom .env variables here if needed
+      - DB_DATABASE=${DB_DATABASE:-awwal_lab}
+      - DB_USERNAME=${DB_USERNAME:-awwal}
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      - INCOME_REPORT_PASSWORD=${INCOME_REPORT_PASSWORD:?Set INCOME_REPORT_PASSWORD in .env}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-lab@gmail.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - RUN_SEEDERS=${RUN_SEEDERS:-false} # true on first boot only (needs ADMIN_PASSWORD)
     volumes:
       - laravel_storage:/app/storage
+    depends_on:
+      - laravel-mysql
     networks:
       - web
       - laravel-net
@@ -30,10 +35,10 @@ services:
     container_name: laravel-mysql
     restart: unless-stopped
     environment:
-      - MYSQL_DATABASE=laravel
-      - MYSQL_USER=laraveluser
-      - MYSQL_PASSWORD=securepassword
-      - MYSQL_ROOT_PASSWORD=secure_root_password
+      - MYSQL_DATABASE=${DB_DATABASE:-awwal_lab}
+      - MYSQL_USER=${DB_USERNAME:-awwal}
+      - MYSQL_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
     volumes:
       - mysql_data:/var/lib/mysql
     networks:

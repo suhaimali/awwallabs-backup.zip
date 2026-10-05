@@ -106,6 +106,7 @@ class CsvDataSeeder extends Seeder
                     ['name' => $testName],
                     ['description' => $testDesc !== '' ? $testDesc : 'Auto-generated template from CSV data file']
                 );
+                $parentTest->update(['report_template_id' => $template->id]);
 
                 // Detail tests (particulars)
                 $sortOrder = 1;
@@ -139,7 +140,7 @@ class CsvDataSeeder extends Seeder
                         'lab_test_id' => $childTest->id,
                         'name' => $childTest->name,
                         'category' => $reportHead !== '' ? $reportHead : 'General',
-                        'subcategory' => trim($master['report_sub_head'] ?? ''),
+                        'subcategory' => trim($master['report_sub_head'] ?? '') ?: null,
                         'unit' => ($unitVal === 'NULL' || $unitVal === '') ? null : $unitVal,
                         'normal_value' => ($refRange === 'NULL' || $refRange === '') ? null : $refRange,
                         'biological_reference' => ($refRange === 'NULL' || $refRange === '') ? null : $refRange,
@@ -188,7 +189,11 @@ class CsvDataSeeder extends Seeder
                 $headers = array_map('trim', $headers);
             }
             while (($data = fgetcsv($handle)) !== FALSE) {
-                $data = array_map('trim', $data);
+                // Exported "NULL" markers mean empty; HTML entities (&lt;) mean the plain character.
+                $data = array_map(function ($v) {
+                    $v = trim(html_entity_decode((string) $v, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                    return in_array(strtoupper($v), ['NULL', 'UNDEFINED'], true) ? '' : $v;
+                }, $data);
                 if (count($data) < count($headers)) {
                     $data = array_pad($data, count($headers), '');
                 } else if (count($data) > count($headers)) {

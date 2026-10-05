@@ -9,13 +9,14 @@
     <meta name="robots" content="noindex, nofollow">
     <meta name="author" content="SUHAIM SOFT LAB">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/brand/mark-32.png') }}">
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ asset('images/brand/mark-192.png') }}">
     <title>{{ config('app.name', 'SUHAIM SOFT LAB') }} @yield('title')</title>
 
     <!-- PWA -->
     <link rel="manifest" href="{{ asset('manifest.json') }}">
     <meta name="theme-color" content="#0284c7">
-    <link rel="apple-touch-icon" href="{{ asset('favicon.svg') }}">
+    <link rel="apple-touch-icon" href="{{ asset('images/brand/mark-180.png') }}">
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -41,6 +42,7 @@
     <!-- jsPDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 
     @stack('styles')
 

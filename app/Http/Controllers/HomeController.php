@@ -7,32 +7,38 @@ use Illuminate\Support\Facades\DB;
 
 class HomeController extends Controller
 {
+    private function dashboardStats(): array
+    {
+        $today = today();
+
+        return [
+            'totalPatients' => \App\Models\Patient::whereDate('created_at', $today)->count(),
+            'totalCompleted' => \App\Models\TestReport::whereDate('created_at', $today)->count(),
+            'totalAppointments' => \App\Models\Appointment::whereDate('created_at', $today)->count(),
+            // Patients who still have booked tests without results.
+            'pendingReports' => \App\Models\Appointment::where('status', 'Pending')->distinct()->count('patient_id'),
+        ];
+    }
+
     public function index(\Illuminate\Http\Request $request)
     {
-        // Daily metrics (Today only)
-        $today = today();
-        $totalPatients = \App\Models\Patient::whereDate('created_at', $today)->count();
-        $totalCompleted = \App\Models\TestReport::whereDate('created_at', $today)->count();
-        $totalAppointments = \App\Models\Appointment::whereDate('created_at', $today)->count();
-        $pendingReports = max(0, $totalAppointments - $totalCompleted);
+        $stats = $this->dashboardStats();
 
-        return view('dashboard', compact('totalPatients', 'totalCompleted', 'totalAppointments', 'pendingReports'));
+        // Work queue: patients waiting for results, oldest first.
+        $worklist = \App\Models\Patient::query()
+            ->whereHas('appointments', fn ($q) => $q->where('status', 'Pending'))
+            ->withCount(['appointments as pending_tests_count' => fn ($q) => $q->where('status', 'Pending')])
+            ->withMin(['appointments as waiting_since' => fn ($q) => $q->where('status', 'Pending')], 'created_at')
+            ->orderBy('waiting_since')
+            ->limit(10)
+            ->get();
+
+        return view('dashboard', $stats + ['worklist' => $worklist]);
     }
 
     public function getDashboardStats(\Illuminate\Http\Request $request)
     {
-        $today = today();
-        $totalPatients = \App\Models\Patient::whereDate('created_at', $today)->count();
-        $totalCompleted = \App\Models\TestReport::whereDate('created_at', $today)->count();
-        $totalAppointments = \App\Models\Appointment::whereDate('created_at', $today)->count();
-        $pendingReports = max(0, $totalAppointments - $totalCompleted);
-
-        return response()->json([
-            'totalPatients' => $totalPatients,
-            'totalCompleted' => $totalCompleted,
-            'totalAppointments' => $totalAppointments,
-            'pendingReports' => $pendingReports,
-        ]);
+        return response()->json($this->dashboardStats());
     }
 
     public function testManagement()
@@ -88,7 +94,7 @@ class HomeController extends Controller
         return response()->json(['success' => true, 'collapsed' => $user->sidebar_collapsed]);
     }
 
-    public function reports()
+    public function reports(\Illuminate\Http\Request $request)
     {
         $reports = \App\Models\TestReport::with('patient')->latest()->get();
         $patients = \App\Models\Patient::orderBy('first_name')->get();
@@ -101,7 +107,26 @@ class HomeController extends Controller
         $flagTemplates = \App\Models\FlagTemplate::orderBy('name')->get();
         $signatures = \App\Models\ReportSignature::orderBy('name')->get();
         $reportTemplates = \App\Models\ReportTemplate::with('items')->orderBy('name')->get();
-        return view('reports', compact('reports', 'patients', 'tests', 'categories', 'subCategories', 'units', 'templates', 'referenceTemplates', 'flagTemplates', 'signatures', 'reportTemplates'));
+
+        // Coming from the visit workflow: open "Generate Report" pre-filled with the patient's pending tests.
+        $prefill = null;
+        if ($request->filled('create_for')) {
+            $patient = \App\Models\Patient::find($request->integer('create_for'));
+            if ($patient) {
+                $pending = $patient->appointments()->where('status', 'Pending')->orderBy('id')->get();
+                $prefill = [
+                    'patient_id' => $patient->id,
+                    'doctor_name' => $pending->first()->doctor_name ?? ($patient->reference_dr ?: 'Self'),
+                    'tests' => $pending->pluck('test_name')->values(),
+                    'rows' => app(\App\Services\ReportBuilder::class)->forTestNames($pending->pluck('test_name')->all(), $patient),
+                ];
+            }
+        }
+
+        $openReportId = $request->integer('open') ?: null;
+        $catalog = app(\App\Services\ReportBuilder::class)->catalog();
+
+        return view('reports', compact('reports', 'patients', 'tests', 'categories', 'subCategories', 'units', 'templates', 'referenceTemplates', 'flagTemplates', 'signatures', 'reportTemplates', 'prefill', 'openReportId', 'catalog'));
     }
 
 
@@ -184,93 +209,120 @@ class HomeController extends Controller
         return response($imageData)->header('Content-Type', $mime);
     }
 
-    public function storeReport(\Illuminate\Http\Request $request)
+    private function reportRules(): array
     {
-        $request->validate([
+        return [
             'patient_id' => 'required|exists:patients,id',
-            'doctor_name' => 'required',
+            'doctor_name' => 'required|string|max:255',
             'sample_received_on' => 'required|date',
             'report_released_on' => 'required|date',
-            'notes' => 'nullable|string',
+            'notes' => 'nullable|string|max:5000',
+            'status' => 'nullable|in:Pending,In Progress,Completed,Cancelled',
             'report_signature_id' => 'nullable|exists:report_signatures,id',
             'signature_pin' => 'required_with:report_signature_id|nullable|string',
-            'test_name.*' => 'nullable',
-            'observed_value.*' => 'nullable',
-        ]);
+            'test_name' => 'nullable|array',
+            'test_name.*' => 'nullable|string|max:255',
+            'observed_value.*' => 'nullable|string|max:255',
+            'lab_test_id.*' => 'nullable|integer',
+            'report_template_id.*' => 'nullable|integer',
+            'panel_name.*' => 'nullable|string|max:255',
+            'panel_notes' => 'nullable|array',
+            'panel_notes.*' => 'nullable|string|max:5000',
+        ];
+    }
+
+    private function panelNotes(\Illuminate\Http\Request $request): ?array
+    {
+        $notes = collect($request->input('panel_notes', []))
+            ->map(fn ($n) => trim((string) $n))
+            ->filter(fn ($n, $k) => $n !== '' && trim((string) $k) !== '');
+
+        return $notes->isEmpty() ? null : $notes->all();
+    }
+
+    public function storeReport(\Illuminate\Http\Request $request)
+    {
+        $request->validate($this->reportRules());
 
         $patient = \App\Models\Patient::findOrFail($request->patient_id);
         $items = $this->buildReportItems($request, $patient);
         $signatureId = $this->verifiedSignatureId($request);
 
-        $report = \App\Models\TestReport::create([
-            'patient_id' => $request->patient_id,
-            'doctor_name' => $request->doctor_name,
-            'sample_received_on' => $request->sample_received_on,
-            'report_released_on' => $request->report_released_on,
-            'barcode' => now()->format('ymd') . mt_rand(1000, 9999),
-            'status' => $request->status ?? 'Completed',
-            'notes' => $request->notes,
-            'report_signature_id' => $signatureId,
+        $report = DB::transaction(function () use ($request, $items, $signatureId) {
+            $report = \App\Models\TestReport::create([
+                'patient_id' => $request->patient_id,
+                'doctor_name' => $request->doctor_name,
+                'sample_received_on' => $request->sample_received_on,
+                'report_released_on' => $request->report_released_on,
+                'barcode' => now()->format('ymd') . random_int(1000, 9999),
+                'status' => $request->status ?? 'Completed',
+                'notes' => $request->notes,
+                'panel_notes' => $this->panelNotes($request),
+                'report_signature_id' => $signatureId,
+            ]);
+
+            $report->items()->createMany($items);
+            $this->auditReport($report, 'created', null, $this->reportSnapshot($report->fresh(['patient', 'items', 'signature'])));
+
+            // The booked tests now have results.
+            $testNames = collect($items)->pluck('name')->filter()->all();
+            if (!empty($testNames)) {
+                \App\Models\Appointment::where('patient_id', $request->patient_id)
+                    ->whereIn('test_name', $testNames)
+                    ->where('status', 'Pending')
+                    ->update(['status' => 'Completed']);
+            }
+
+            return $report;
+        });
+
+        return response()->json([
+            'success' => 'Test report generated successfully!',
+            'id' => $report->id,
+            'public_url' => $report->public_url,
         ]);
-
-        $report->items()->createMany($items);
-        $this->auditReport($report, 'created', null, $this->reportSnapshot($report->fresh(['patient', 'items', 'signature'])));
-
-        // Update appointment status for these tests
-        if ($request->has('test_name')) {
-            \App\Models\Appointment::where('patient_id', $request->patient_id)
-                ->whereIn('test_name', $request->test_name)
-                ->where('status', '!=', 'Completed')
-                ->update(['status' => 'Completed']);
-        }
-
-        return response()->json(['success' => 'Advanced test report generated successfully!']);
     }
 
     public function updateReport(\Illuminate\Http\Request $request, $id)
     {
         $report = \App\Models\TestReport::findOrFail($id);
-        
-        $request->validate([
-            'patient_id' => 'required|exists:patients,id',
-            'doctor_name' => 'required',
-            'sample_received_on' => 'required|date',
-            'report_released_on' => 'required|date',
-            'notes' => 'nullable|string',
-            'report_signature_id' => 'nullable|exists:report_signatures,id',
-            'signature_pin' => 'required_with:report_signature_id|nullable|string',
-            'test_name.*' => 'nullable',
-            'observed_value.*' => 'nullable',
-        ]);
+        $request->validate($this->reportRules());
 
         $oldData = $this->reportSnapshot($report->load(['patient', 'items', 'signature']));
         $patient = \App\Models\Patient::findOrFail($request->patient_id);
         $items = $this->buildReportItems($request, $patient);
         $signatureId = $this->verifiedSignatureId($request);
 
-        $report->update([
-            'patient_id' => $request->patient_id,
-            'doctor_name' => $request->doctor_name,
-            'sample_received_on' => $request->sample_received_on,
-            'report_released_on' => $request->report_released_on,
-            'status' => $request->status ?? 'Completed',
-            'notes' => $request->notes,
-            'report_signature_id' => $signatureId,
-        ]);
-        $report->items()->delete();
-        $report->items()->createMany($items);
-        $this->auditReport($report, 'updated', $oldData, $this->reportSnapshot($report->fresh(['patient', 'items', 'signature'])));
+        DB::transaction(function () use ($report, $request, $items, $signatureId, $oldData) {
+            $report->update([
+                'patient_id' => $request->patient_id,
+                'doctor_name' => $request->doctor_name,
+                'sample_received_on' => $request->sample_received_on,
+                'report_released_on' => $request->report_released_on,
+                'status' => $request->status ?? $report->status ?? 'Completed',
+                'notes' => $request->notes,
+                'panel_notes' => $this->panelNotes($request),
+                'report_signature_id' => $signatureId,
+            ]);
+            $report->items()->delete();
+            $report->items()->createMany($items);
+            $this->auditReport($report, 'updated', $oldData, $this->reportSnapshot($report->fresh(['patient', 'items', 'signature'])));
+        });
 
-        return response()->json(['success' => 'Test report updated successfully!']);
+        return response()->json(['success' => 'Test report updated successfully!', 'id' => $report->id]);
     }
 
     public function getReport($id)
     {
         $report = \App\Models\TestReport::with(['patient', 'items', 'signature'])->findOrFail($id);
+        $report->ensurePublicToken();
+        $report->patient?->ensurePublicToken();
+
         $payload = $report->toArray();
         $payload['results'] = $report->items->map(fn ($item) => $this->serializeReportItem($item))->values();
+        $payload['panel_notes'] = $report->panel_notes ?: (object) [];
         $payload['signature'] = $this->serializeReportSignature($report->signature);
-        
+
         $doctor = \App\Models\Doctor::where('name', $report->doctor_name)->first();
         $payload['doctor_qualification'] = $doctor ? $doctor->qualification : null;
 
@@ -288,13 +340,11 @@ class HomeController extends Controller
 
     public function patients()
     {
-        $patients = \App\Models\Patient::with('appointments')->latest()->get();
-        $labTests = \App\Models\LabTest::orderBy('name')->get();
-        
-        $latest = \App\Models\Patient::latest('id')->first();
-        $nextId = ($latest ? $latest->id : 0) + 1;
-        $nextPatientId = date('Y') . '-' . str_pad($nextId, 4, '0', STR_PAD_LEFT);
-        
+        $patients = \App\Models\Patient::withCount(['appointments as pending_tests_count' => fn ($q) => $q->where('status', 'Pending')])
+            ->latest()->get();
+        $labTests = \App\Models\LabTest::orderBy('name')->get(['id', 'name', 'price']);
+        $nextPatientId = \App\Services\PatientService::nextNumber();
+
         return view('patients', compact('patients', 'labTests', 'nextPatientId'));
     }
 
@@ -303,66 +353,130 @@ class HomeController extends Controller
      */
     public function payments(\Illuminate\Http\Request $request)
     {
-        $payments = \App\Models\Payment::with('patient')->latest()->get();
+        $payments = \App\Models\Payment::with('patient')->withCount('appointments')->latest('id')->get();
         $patients = \App\Models\Patient::orderBy('first_name')->get();
 
         if ($request->ajax()) {
             return response()->json($payments);
         }
 
-        return view('payments', compact('payments', 'patients'));
+        $active = $payments->where('payment_status', '!=', 'Refunded');
+        $stats = [
+            'billed' => $active->sum('net_amount'),
+            'collected' => $active->sum('advance_paid'),
+            'outstanding' => $active->sum(fn ($p) => max(0, (float) $p->balance_due)),
+            'counts' => $payments->countBy('payment_status'),
+        ];
+        $paymentMethods = \App\Services\BillingService::PAYMENT_METHODS;
+
+        return view('payments', compact('payments', 'patients', 'stats', 'paymentMethods'));
+    }
+
+    private function paymentRules(): array
+    {
+        return [
+            'patient_id'     => 'required|exists:patients,id',
+            'total_amount'   => 'required|numeric|min:0',
+            'discount'       => 'nullable|numeric|min:0|lte:total_amount',
+            'advance_paid'   => 'nullable|numeric|min:0',
+            // Paid / Partial / Unpaid are worked out from the amounts; only Refunded is set by hand.
+            'payment_status' => 'nullable|in:Paid,Partial,Unpaid,Refunded',
+            'payment_method' => 'required|in:' . implode(',', \App\Services\BillingService::PAYMENT_METHODS),
+            'bill_date'      => 'required|date',
+            'remarks'        => 'nullable|string|max:500',
+        ];
+    }
+
+    /** Derive net, balance and status; reject paying more than the bill. */
+    private function preparePayment(array $validated): array
+    {
+        $validated['discount'] = round((float) ($validated['discount'] ?? 0), 2);
+        $validated['advance_paid'] = round((float) ($validated['advance_paid'] ?? 0), 2);
+        $validated['net_amount'] = round($validated['total_amount'] - $validated['discount'], 2);
+        $validated['balance_due'] = round($validated['net_amount'] - $validated['advance_paid'], 2);
+
+        if ($validated['balance_due'] < 0) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'advance_paid' => 'Amount paid (₹' . number_format($validated['advance_paid'], 2) . ') is more than the net amount (₹' . number_format($validated['net_amount'], 2) . ').',
+            ]);
+        }
+
+        $validated['payment_status'] = \App\Services\BillingService::status(
+            $validated['advance_paid'],
+            $validated['balance_due'],
+            ($validated['payment_status'] ?? null) === 'Refunded' ? 'Refunded' : null
+        );
+
+        return $validated;
     }
 
     public function storePayment(\Illuminate\Http\Request $request)
     {
-        $validated = $request->validate([
-            'patient_id'     => 'required|exists:patients,id',
-            'total_amount'   => 'required|numeric|min:0',
-            'discount'       => 'nullable|numeric|min:0',
-            'advance_paid'   => 'nullable|numeric|min:0',
-            'payment_status' => 'required|in:Paid,Partial,Unpaid,Refunded',
-            'payment_method' => 'required|in:Cash,Card,Bank Transfer,Online,Other',
-            'bill_date'      => 'required|date',
-            'remarks'        => 'nullable|string|max:500',
-        ]);
-
-        $validated['discount'] = $validated['discount'] ?? 0;
-        $validated['advance_paid'] = $validated['advance_paid'] ?? 0;
-        $validated['net_amount'] = $validated['total_amount'] - $validated['discount'];
-        $validated['balance_due'] = $validated['net_amount'] - $validated['advance_paid'];
+        $validated = $this->preparePayment($request->validate($this->paymentRules()));
 
         \App\Models\Payment::create($validated);
 
         return response()->json(['success' => 'Payment record created successfully!']);
     }
 
+    /** Record that the remaining balance of a bill has been received. */
+    public function settlePayment(\Illuminate\Http\Request $request, \App\Services\BillingService $billing, $id)
+    {
+        $payment = \App\Models\Payment::findOrFail($id);
+        $request->validate(['payment_method' => 'nullable|in:' . implode(',', \App\Services\BillingService::PAYMENT_METHODS)]);
+
+        DB::transaction(function () use ($payment, $request, $billing) {
+            $appointments = $payment->appointments()->orderBy('id')->get();
+            if ($appointments->isNotEmpty()) {
+                $billing->distributeAdvance($appointments, (float) $appointments->sum(fn ($a) => $a->test_price - $a->discount));
+                $billing->recalculatePayment($payment);
+                $billing->recalculatePatient($payment->patient);
+            } else {
+                $payment->forceFill([
+                    'advance_paid' => $payment->net_amount,
+                    'balance_due' => 0,
+                    'payment_status' => 'Paid',
+                ])->save();
+            }
+            if ($request->filled('payment_method')) {
+                $payment->update(['payment_method' => $request->payment_method]);
+            }
+        });
+
+        return response()->json(['success' => 'Balance received. Bill #' . $payment->id . ' is now fully paid.']);
+    }
+
     public function getPayment($id)
     {
-        $payment = \App\Models\Payment::with('patient')->findOrFail($id);
+        $payment = \App\Models\Payment::with('patient')->withCount('appointments')->findOrFail($id);
         return response()->json($payment);
     }
 
-    public function updatePayment(\Illuminate\Http\Request $request, $id)
+    public function updatePayment(\Illuminate\Http\Request $request, \App\Services\BillingService $billing, $id)
     {
         $payment = \App\Models\Payment::findOrFail($id);
-        
-        $validated = $request->validate([
-            'patient_id'     => 'required|exists:patients,id',
-            'total_amount'   => 'required|numeric|min:0',
-            'discount'       => 'nullable|numeric|min:0',
-            'advance_paid'   => 'nullable|numeric|min:0',
-            'payment_status' => 'required|in:Paid,Partial,Unpaid,Refunded',
-            'payment_method' => 'required|in:Cash,Card,Bank Transfer,Online,Other',
-            'bill_date'      => 'required|date',
-            'remarks'        => 'nullable|string|max:500',
-        ]);
+        $input = $request->validate($this->paymentRules());
 
-        $validated['discount'] = $validated['discount'] ?? 0;
-        $validated['advance_paid'] = $validated['advance_paid'] ?? 0;
-        $validated['net_amount'] = $validated['total_amount'] - $validated['discount'];
-        $validated['balance_due'] = $validated['net_amount'] - $validated['advance_paid'];
+        // Bills generated from booked tests take their amounts from the tests.
+        if ($payment->appointments()->exists()) {
+            $input['total_amount'] = (float) $payment->appointments()->sum('test_price');
+            $input['discount'] = (float) $payment->appointments()->sum('discount');
+            $input['patient_id'] = $payment->patient_id;
+        }
+        $validated = $this->preparePayment($input);
 
-        $payment->update($validated);
+        DB::transaction(function () use ($payment, $validated, $billing) {
+            $payment->update($validated);
+
+            // A bill generated from booked tests: amounts come from the tests, the
+            // amount received is spread back over them so patient balances stay right.
+            $appointments = $payment->appointments()->orderBy('id')->get();
+            if ($appointments->isNotEmpty()) {
+                $billing->distributeAdvance($appointments, (float) $validated['advance_paid']);
+                $billing->recalculatePayment($payment);
+                $billing->recalculatePatient($payment->patient);
+            }
+        });
 
         return response()->json(['success' => 'Payment record updated successfully!']);
     }
@@ -370,237 +484,139 @@ class HomeController extends Controller
     public function deletePayment($id)
     {
         $payment = \App\Models\Payment::findOrFail($id);
+
+        if ($payment->appointments()->exists()) {
+            return response()->json([
+                'error' => 'This bill belongs to booked tests. Remove the tests from the patient (Patients → Edit) and the bill is removed automatically.',
+            ], 409);
+        }
+
         $payment->delete();
 
         return response()->json(['success' => 'Payment record deleted successfully!']);
     }
 
-    public function storePatient(\Illuminate\Http\Request $request)
+    public function storePatient(\Illuminate\Http\Request $request, \App\Services\BillingService $billing)
     {
-        $validated = $request->validate([
-            'patient_id'     => 'nullable|unique:patients',
-            'first_name'     => 'required|string|max:100',
-            'last_name'      => 'required|string|max:100',
-            'gender'         => 'required|in:Male,Female,Other',
-            'age'            => 'required|numeric|min:0|max:150',
-            'age_type'       => 'nullable|in:Years,Months,Days',
-            'phone'          => 'nullable|string|max:20',
-            'email'          => 'nullable|email|max:255',
-            'reference_dr'   => 'nullable|string|max:150',
-            'status'         => 'nullable|string|max:50',
-            'address'        => 'nullable|string|max:500',
-            'payment_method' => 'nullable|string|max:50',
-            'advance_paid'   => 'nullable|numeric|min:0',
-        ]);
+        $validated = $request->validate(\App\Services\PatientService::rules());
 
-        if (empty($validated['patient_id'])) {
-            $validated['patient_id'] = DB::transaction(function () {
-                $latest = \App\Models\Patient::lockForUpdate()->latest('id')->first();
-                $nextId = ($latest ? $latest->id : 0) + 1;
-                return date('Y') . '-' . str_pad($nextId, 4, '0', STR_PAD_LEFT);
-            });
-        }
+        $rows = \App\Services\BillingService::rowsFromRequest(
+            $request->input('test_name', []),
+            $request->input('test_price', []),
+            $request->input('test_discount', [])
+        );
 
-        // Calculate totals from input test arrays
-        $testNames = $request->input('test_name', []);
-        $testPrices = $request->input('test_price', []);
-        $testDiscounts = $request->input('test_discount', []);
+        $patient = DB::transaction(function () use ($validated, $rows, $billing) {
+            $patient = \App\Services\PatientService::create($validated);
 
-        $totalAmount = 0;
-        $totalDiscount = 0;
-
-        foreach ($testNames as $index => $name) {
-            if (!empty($name)) {
-                $price = floatval($testPrices[$index] ?? 0);
-                $discount = floatval($testDiscounts[$index] ?? 0);
-                $totalAmount += $price;
-                $totalDiscount += $discount;
+            if (!empty($rows)) {
+                $billing->createBill(
+                    $patient,
+                    $rows,
+                    (float) ($validated['advance_paid'] ?? 0),
+                    $validated['payment_method'] ?? null,
+                    'Auto-generated from Add Patient'
+                );
             }
-        }
 
-        $advancePaid = floatval($request->input('advance_paid', 0));
+            return $patient;
+        });
 
-        $validated['total_amount'] = $totalAmount;
-        $validated['discount'] = $totalDiscount;
-        $validated['advance_paid'] = $advancePaid;
-        $validated['balance'] = $totalAmount - $totalDiscount - $advancePaid;
-
-        $patient = \App\Models\Patient::create($validated);
-
-        // Create appointments and distribute advance_paid
-        $remainingAdvance = $advancePaid;
-        foreach ($testNames as $index => $name) {
-            if (!empty($name)) {
-                $price = floatval($testPrices[$index] ?? 0);
-                $discount = floatval($testDiscounts[$index] ?? 0);
-                $net = $price - $discount;
-
-                $appAdvance = min($remainingAdvance, $net);
-                $remainingAdvance -= $appAdvance;
-                $balance = $net - $appAdvance;
-
-                \App\Models\Appointment::create([
-                    'patient_id' => $patient->id,
-                    'doctor_name' => $patient->reference_dr ?: 'Self',
-                    'test_name' => $name,
-                    'test_price' => $price,
-                    'discount' => $discount,
-                    'advance_paid' => $appAdvance,
-                    'balance' => $balance,
-                    'appointment_date' => date('Y-m-d'),
-                    'appointment_time' => date('H:i'),
-                    'status' => 'Pending',
-                    'total_amount' => $price,
-                ]);
-            }
-        }
-
-        // Create a corresponding payment record for this patient
-        $netAmount = $totalAmount - $totalDiscount;
-        $balanceDue = $netAmount - $advancePaid;
-        \App\Models\Payment::create([
-            'patient_id'     => $patient->id,
-            'total_amount'   => $totalAmount,
-            'discount'       => $totalDiscount,
-            'advance_paid'   => $advancePaid,
-            'net_amount'     => $netAmount,
-            'balance_due'    => $balanceDue,
-            'payment_status' => ($balanceDue <= 0) ? 'Paid' : (($advancePaid > 0) ? 'Partial' : 'Unpaid'),
-            'payment_method' => $validated['payment_method'] ?? 'Cash',
-            'bill_date'      => date('Y-m-d'),
-            'remarks'        => 'Auto-generated from Add Patient',
+        return response()->json([
+            'success' => 'Patient added successfully! ID: ' . $patient->patient_id,
+            'patient' => $patient->fresh(),
         ]);
-
-        return response()->json(['success' => 'Patient added successfully! ID: ' . $validated['patient_id']]);
     }
 
     public function getPatient($id)
     {
-        $patient = \App\Models\Patient::with('appointments')->findOrFail($id);
+        $patient = \App\Models\Patient::with(['appointments' => fn ($q) => $q->orderBy('id')])->findOrFail($id);
+        $patient->ensurePublicToken();
+
         return response()->json($patient);
     }
 
-    public function updatePatient(\Illuminate\Http\Request $request, $id)
+    public function updatePatient(\Illuminate\Http\Request $request, \App\Services\BillingService $billing, $id)
     {
         $patient = \App\Models\Patient::findOrFail($id);
-        
-        $validated = $request->validate([
-            'patient_id'     => 'required|unique:patients,patient_id,' . $id,
-            'first_name'     => 'required|string|max:100',
-            'last_name'      => 'required|string|max:100',
-            'gender'         => 'required|in:Male,Female,Other',
-            'age'            => 'required|numeric|min:0|max:150',
-            'age_type'       => 'nullable|in:Years,Months,Days',
-            'phone'          => 'nullable|string|max:20',
-            'email'          => 'nullable|email|max:255',
-            'reference_dr'   => 'nullable|string|max:150',
-            'status'         => 'nullable|string|max:50',
-            'address'        => 'nullable|string|max:500',
-            'payment_method' => 'nullable|string|max:50',
-            'advance_paid'   => 'nullable|numeric|min:0',
-        ]);
+        $validated = $request->validate(\App\Services\PatientService::rules((int) $id));
 
-        // Calculate totals from input test arrays
-        $appointmentIds = $request->input('appointment_id', []);
-        $testNames = $request->input('test_name', []);
-        $testPrices = $request->input('test_price', []);
-        $testDiscounts = $request->input('test_discount', []);
+        $rows = \App\Services\BillingService::rowsFromRequest(
+            $request->input('test_name', []),
+            $request->input('test_price', []),
+            $request->input('test_discount', []),
+            $request->input('appointment_id', [])
+        );
 
-        $totalAmount = 0;
-        $totalDiscount = 0;
+        DB::transaction(function () use ($patient, $validated, $rows, $billing) {
+            $patient->update(collect($validated)->only(\App\Services\PatientService::FIELDS)->all());
 
-        foreach ($testNames as $index => $name) {
-            if (!empty($name)) {
-                $price = floatval($testPrices[$index] ?? 0);
-                $discount = floatval($testDiscounts[$index] ?? 0);
-                $totalAmount += $price;
-                $totalDiscount += $discount;
-            }
-        }
+            $existing = $patient->appointments()->get()->keyBy('id');
+            $touchedPayments = $existing->pluck('payment_id')->filter()->unique()->values();
+            $keep = [];
+            $unbilled = [];
 
-        $advancePaid = floatval($request->input('advance_paid', 0));
-
-        $validated['total_amount'] = $totalAmount;
-        $validated['discount'] = $totalDiscount;
-        $validated['advance_paid'] = $advancePaid;
-        $validated['balance'] = $totalAmount - $totalDiscount - $advancePaid;
-
-        $patient->update($validated);
-
-        // Keep track of active/updated appointment IDs so we can delete removed ones
-        $keepAppointmentIds = [];
-        $remainingAdvance = $advancePaid;
-
-        foreach ($testNames as $index => $name) {
-            if (!empty($name)) {
-                $appId = $appointmentIds[$index] ?? null;
-                $price = floatval($testPrices[$index] ?? 0);
-                $discount = floatval($testDiscounts[$index] ?? 0);
-                $net = $price - $discount;
-
-                $appAdvance = min($remainingAdvance, $net);
-                $remainingAdvance -= $appAdvance;
-                $balance = $net - $appAdvance;
-
-                if ($appId) {
-                    $appointment = \App\Models\Appointment::find($appId);
-                    if ($appointment) {
-                        $appointment->update([
-                            'test_name' => $name,
-                            'test_price' => $price,
-                            'discount' => $discount,
-                            'advance_paid' => $appAdvance,
-                            'balance' => $balance,
-                            'total_amount' => $price,
-                        ]);
-                        $keepAppointmentIds[] = $appointment->id;
-                    }
+            foreach ($rows as $row) {
+                $appointment = $row['appointment_id'] ? $existing->get($row['appointment_id']) : null;
+                if ($appointment) {
+                    $appointment->update([
+                        'test_name' => $row['name'],
+                        'test_price' => $row['price'],
+                        'discount' => $row['discount'],
+                        'total_amount' => $row['price'],
+                    ]);
                 } else {
-                    $newApp = \App\Models\Appointment::create([
+                    $appointment = \App\Models\Appointment::create([
                         'patient_id' => $patient->id,
                         'doctor_name' => $patient->reference_dr ?: 'Self',
-                        'test_name' => $name,
-                        'test_price' => $price,
-                        'discount' => $discount,
-                        'advance_paid' => $appAdvance,
-                        'balance' => $balance,
-                        'appointment_date' => date('Y-m-d'),
-                        'appointment_time' => date('H:i'),
+                        'test_name' => $row['name'],
+                        'test_price' => $row['price'],
+                        'discount' => $row['discount'],
+                        'balance' => $row['price'] - $row['discount'],
+                        'total_amount' => $row['price'],
+                        'appointment_date' => now()->toDateString(),
+                        'appointment_time' => now()->format('H:i'),
                         'status' => 'Pending',
-                        'total_amount' => $price,
                     ]);
-                    $keepAppointmentIds[] = $newApp->id;
                 }
+                if (!$appointment->payment_id) {
+                    $unbilled[] = $appointment->id;
+                }
+                $keep[] = $appointment->id;
             }
-        }
 
-        // Delete any appointments that were removed from the edit list
-        \App\Models\Appointment::where('patient_id', $patient->id)
-            ->whereNotIn('id', $keepAppointmentIds)
-            ->delete();
+            // Tests removed from the edit list
+            \App\Models\Appointment::where('patient_id', $patient->id)->whereNotIn('id', $keep ?: [0])->delete();
 
-        // Create or update a corresponding payment record for this patient
-        $netAmount = $totalAmount - $totalDiscount;
-        $balanceDue = $netAmount - $advancePaid;
-        $payment = \App\Models\Payment::where('patient_id', $patient->id)->first();
-        $paymentData = [
-            'total_amount'   => $totalAmount,
-            'discount'       => $totalDiscount,
-            'advance_paid'   => $advancePaid,
-            'net_amount'     => $netAmount,
-            'balance_due'    => $balanceDue,
-            'payment_status' => ($balanceDue <= 0) ? 'Paid' : (($advancePaid > 0) ? 'Partial' : 'Unpaid'),
-            'payment_method' => $validated['payment_method'] ?? 'Cash',
-        ];
+            // New (or legacy, unlinked) tests go on the patient's latest bill
+            if (!empty($unbilled)) {
+                $payment = \App\Models\Payment::where('patient_id', $patient->id)
+                    ->whereIn('id', $touchedPayments->all() ?: [0])->latest('id')->first()
+                    ?? \App\Models\Payment::where('patient_id', $patient->id)->latest('id')->first()
+                    ?? \App\Models\Payment::create([
+                        'patient_id' => $patient->id,
+                        'payment_status' => 'Unpaid',
+                        'payment_method' => $validated['payment_method'] ?? 'Cash',
+                        'bill_date' => now()->toDateString(),
+                        'remarks' => 'Auto-generated from Update Patient',
+                    ]);
+                \App\Models\Appointment::whereIn('id', $unbilled)->update(['payment_id' => $payment->id]);
+                $touchedPayments->push($payment->id);
+            }
 
-        if ($payment) {
-            $payment->update($paymentData);
-        } else {
-            $paymentData['patient_id'] = $patient->id;
-            $paymentData['bill_date'] = date('Y-m-d');
-            $paymentData['remarks'] = 'Auto-generated from Update Patient';
-            \App\Models\Payment::create($paymentData);
-        }
+            // The edit form carries one "amount paid" for the whole patient.
+            $billing->distributeAdvance(
+                $patient->appointments()->orderBy('id')->get(),
+                (float) ($validated['advance_paid'] ?? 0)
+            );
+
+            if (!empty($validated['payment_method'])) {
+                \App\Models\Payment::whereIn('id', $touchedPayments->all() ?: [0])
+                    ->update(['payment_method' => $validated['payment_method']]);
+            }
+
+            $billing->syncPayments($patient, $touchedPayments);
+        });
 
         return response()->json(['success' => 'Patient updated successfully!']);
     }
@@ -609,70 +625,64 @@ class HomeController extends Controller
     {
         $patient = \App\Models\Patient::findOrFail($id);
 
-        // Delete associated test reports and their items
-        $reports = \App\Models\TestReport::where('patient_id', $patient->id)->get();
-        foreach($reports as $report) {
-            $report->items()->delete();
-            $report->delete();
-        }
-        
-        // Delete associated appointments
-        \App\Models\Appointment::where('patient_id', $patient->id)->delete();
-        
-        // Delete associated payments
-        \App\Models\Payment::where('patient_id', $patient->id)->delete();
-        
-        // Delete associated vital signs
-        \App\Models\VitalSign::where('patient_id', $patient->id)->delete();
-
-        $patient->delete();
+        DB::transaction(function () use ($patient) {
+            $reports = \App\Models\TestReport::withTrashed()->where('patient_id', $patient->id)->get();
+            foreach ($reports as $report) {
+                $report->items()->delete();
+                $report->forceDelete();
+            }
+            \App\Models\Appointment::where('patient_id', $patient->id)->delete();
+            \App\Models\Payment::where('patient_id', $patient->id)->delete();
+            \App\Models\VitalSign::where('patient_id', $patient->id)->delete();
+            $patient->delete();
+        });
 
         return response()->json(['success' => 'Patient and all associated records deleted successfully!']);
     }
 
-
-
     // Appointment CRUD Methods
-    public function storeAppointment(\Illuminate\Http\Request $request)
+    private function appointmentRules(): array
     {
-        $validated = $request->validate([
+        return [
             'patient_id' => 'required|exists:patients,id',
             'doctor_name' => 'nullable|string|max:150',
             'test_name' => 'required|string|max:255',
             'test_price' => 'required|numeric|min:0',
-            'discount' => 'nullable|numeric|min:0',
+            'discount' => 'nullable|numeric|min:0|lte:test_price',
             'advance_paid' => 'nullable|numeric|min:0',
-            'balance' => 'nullable|numeric',
             'appointment_date' => 'required|date',
-            'appointment_time' => 'required',
+            'appointment_time' => 'required|date_format:H:i,H:i:s',
             'status' => 'required|in:Pending,Completed,Cancelled',
             'reason' => 'nullable|string|max:500',
             'notes' => 'nullable|string|max:1000',
-        ]);
+            'payment_method' => 'nullable|in:' . implode(',', \App\Services\BillingService::PAYMENT_METHODS),
+        ];
+    }
 
-        // Auto-fill fields
-        $validated['doctor_name'] = $validated['doctor_name'] ?? 'Self';
-        $validated['total_amount'] = $validated['test_price'];
-        $validated['discount'] = $request->discount ?? 0;
-        $validated['advance_paid'] = $request->advance_paid ?? 0;
-        $validated['balance'] = $request->balance ?? ($validated['test_price'] - $validated['discount'] - $validated['advance_paid']);
+    public function storeAppointment(\Illuminate\Http\Request $request, \App\Services\BillingService $billing)
+    {
+        $validated = $request->validate($this->appointmentRules());
 
-        \App\Models\Appointment::create($validated);
+        DB::transaction(function () use ($validated, $billing) {
+            $patient = \App\Models\Patient::findOrFail($validated['patient_id']);
+            $payment = $billing->createBill(
+                $patient,
+                [[
+                    'name' => $validated['test_name'],
+                    'price' => (float) $validated['test_price'],
+                    'discount' => (float) ($validated['discount'] ?? 0),
+                ]],
+                (float) ($validated['advance_paid'] ?? 0),
+                $validated['payment_method'] ?? null,
+                'Auto-generated from Appointment Booking',
+                $validated['doctor_name'] ?? null,
+                $validated['appointment_date']
+            );
 
-        // Create a corresponding payment record for this appointment booking
-        $netAmount = $validated['total_amount'] - $validated['discount'];
-        \App\Models\Payment::create([
-            'patient_id'     => $validated['patient_id'],
-            'total_amount'   => $validated['total_amount'],
-            'discount'       => $validated['discount'],
-            'advance_paid'   => $validated['advance_paid'],
-            'net_amount'     => $netAmount,
-            'balance_due'    => $validated['balance'],
-            'payment_status' => ($validated['balance'] <= 0 && $netAmount > 0) ? 'Paid' : (($validated['advance_paid'] > 0) ? 'Partial' : 'Unpaid'),
-            'payment_method' => 'Cash', // Default for quick book
-            'bill_date'      => date('Y-m-d'),
-            'remarks'        => 'Auto-generated from Appointment Booking',
-        ]);
+            $payment->appointments()->update(collect($validated)->only([
+                'appointment_time', 'status', 'reason', 'notes',
+            ])->all());
+        });
 
         return response()->json(['success' => 'Booking saved successfully!']);
     }
@@ -683,62 +693,66 @@ class HomeController extends Controller
         return response()->json($appointment);
     }
 
-    public function updateAppointment(\Illuminate\Http\Request $request, $id)
+    public function updateAppointment(\Illuminate\Http\Request $request, \App\Services\BillingService $billing, $id)
     {
         $appointment = \App\Models\Appointment::findOrFail($id);
-        
-        $validated = $request->validate([
-            'patient_id' => 'required|exists:patients,id',
-            'doctor_name' => 'required|string|max:150',
-            'test_name' => 'required|string|max:255',
-            'test_price' => 'required|numeric|min:0',
-            'discount' => 'nullable|numeric|min:0',
-            'advance_paid' => 'nullable|numeric|min:0',
-            'balance' => 'nullable|numeric',
-            'appointment_date' => 'required|date',
-            'appointment_time' => 'required',
-            'status' => 'required|in:Pending,Completed,Cancelled',
-            'notes' => 'nullable|string|max:1000',
-        ]);
+        $validated = $request->validate($this->appointmentRules());
 
-        $validated['total_amount'] = $validated['test_price'];
-        $validated['discount'] = $validated['discount'] ?? 0;
-        $validated['advance_paid'] = $validated['advance_paid'] ?? 0;
-        $validated['balance'] = $validated['balance'] ?? ($validated['test_price'] - $validated['discount'] - $validated['advance_paid']);
+        DB::transaction(function () use ($appointment, $validated, $billing) {
+            $oldPatientId = $appointment->patient_id;
+            $oldPaymentId = $appointment->payment_id;
 
-        $appointment->update($validated);
+            $appointment->update([
+                'patient_id' => $validated['patient_id'],
+                'doctor_name' => $validated['doctor_name'] ?? 'Self',
+                'test_name' => $validated['test_name'],
+                'test_price' => $validated['test_price'],
+                'discount' => $validated['discount'] ?? 0,
+                'total_amount' => $validated['test_price'],
+                'appointment_date' => $validated['appointment_date'],
+                'appointment_time' => $validated['appointment_time'],
+                'status' => $validated['status'],
+                'notes' => $validated['notes'] ?? null,
+            ]);
 
-        // Create or update a corresponding payment record for this appointment
-        $netAmount = $validated['total_amount'] - $validated['discount'];
-        
-        // Find the patient's existing payment or create a new one
-        $payment = \App\Models\Payment::where('patient_id', $validated['patient_id'])->latest()->first();
-        $paymentData = [
-            'total_amount'   => $validated['total_amount'],
-            'discount'       => $validated['discount'],
-            'advance_paid'   => $validated['advance_paid'],
-            'net_amount'     => $netAmount,
-            'balance_due'    => $validated['balance'],
-            'payment_status' => ($validated['balance'] <= 0 && $netAmount > 0) ? 'Paid' : (($validated['advance_paid'] > 0) ? 'Partial' : 'Unpaid'),
-            'payment_method' => 'Cash',
-        ];
+            $billing->distributeAdvance(collect([$appointment]), (float) ($validated['advance_paid'] ?? 0));
 
-        if ($payment) {
-            $payment->update($paymentData);
-        } else {
-            $paymentData['patient_id'] = $validated['patient_id'];
-            $paymentData['bill_date'] = date('Y-m-d');
-            $paymentData['remarks'] = 'Auto-generated from Update Appointment';
-            \App\Models\Payment::create($paymentData);
-        }
+            if ($appointment->payment_id && $oldPatientId == $validated['patient_id']) {
+                $billing->recalculatePayment($appointment->payment);
+            } else {
+                // Unbilled legacy booking, or moved to another patient: give it its own bill.
+                $payment = \App\Models\Payment::create([
+                    'patient_id' => $validated['patient_id'],
+                    'payment_status' => 'Unpaid',
+                    'payment_method' => $validated['payment_method'] ?? 'Cash',
+                    'bill_date' => $validated['appointment_date'],
+                    'remarks' => 'Auto-generated from Update Appointment',
+                ]);
+                $appointment->update(['payment_id' => $payment->id]);
+                $billing->recalculatePayment($payment);
+            }
+
+            $billing->syncPayments(\App\Models\Patient::findOrFail($validated['patient_id']), [$appointment->payment_id]);
+            if ($oldPatientId != $validated['patient_id'] || $oldPaymentId != $appointment->payment_id) {
+                $billing->syncPayments(\App\Models\Patient::findOrFail($oldPatientId), [$oldPaymentId]);
+            }
+        });
 
         return response()->json(['success' => 'Booking updated successfully!']);
     }
 
-    public function deleteAppointment($id)
+    public function deleteAppointment(\App\Services\BillingService $billing, $id)
     {
         $appointment = \App\Models\Appointment::findOrFail($id);
-        $appointment->delete();
+
+        DB::transaction(function () use ($appointment, $billing) {
+            $patient = $appointment->patient;
+            $paymentId = $appointment->payment_id;
+            $appointment->delete();
+            if ($patient) {
+                $billing->syncPayments($patient, [$paymentId]);
+            }
+        });
 
         return response()->json(['success' => 'Booking deleted successfully!']);
     }
@@ -808,15 +822,17 @@ class HomeController extends Controller
             ->whereDate('bill_date', $date)
             ->get();
 
-        $totalCollection = $payments->sum('net_amount');
+        // Cash tally = money actually received (not the billed amount); refunds excluded.
+        $received = $payments->where('payment_status', '!=', 'Refunded');
+        $totalCollection = $received->sum('advance_paid');
         $totalTransactions = $payments->count();
 
         // Group by payment method
         $methods = collect();
-        foreach($payments->groupBy('payment_method') as $method => $group) {
+        foreach ($received->groupBy('payment_method') as $method => $group) {
             $methods->push([
                 'method' => $method ?: 'Unknown',
-                'amount' => $group->sum('net_amount'),
+                'amount' => $group->sum('advance_paid'),
                 'count' => $group->count()
             ]);
         }
@@ -950,37 +966,45 @@ class HomeController extends Controller
             'description' => 'nullable',
         ]);
 
-        if (empty($validated['price']) && $validated['price'] !== 0) {
-            $validated['price'] = 0;
-        }
+        $validated['price'] = $validated['price'] ?? 0;
 
         $test = \App\Models\LabTest::create($validated);
 
         return response()->json(['success' => 'Laboratory test registered successfully!', 'test' => $test]);
     }
 
+    private function parameterRules(): array
+    {
+        return [
+            'unit' => 'nullable|string|max:100',
+            'male_reference' => 'nullable|string|max:1000',
+            'female_reference' => 'nullable|string|max:1000',
+            'male_min' => 'nullable|numeric',
+            'male_max' => 'nullable|numeric',
+            'female_min' => 'nullable|numeric',
+            'female_max' => 'nullable|numeric',
+            'critical_low' => 'nullable|numeric',
+            'critical_high' => 'nullable|numeric',
+            'biological_reference' => 'nullable|string|max:2000',
+            'is_immunoassay' => 'nullable|boolean',
+        ];
+    }
+
     public function quickStoreTest(\Illuminate\Http\Request $request)
     {
         $validatedTest = $request->validate([
-            'name' => 'required',
-            'price' => 'nullable|numeric',
-            'description' => 'nullable'
+            'name' => 'required|string|max:255',
+            'price' => 'nullable|numeric|min:0',
+            'description' => 'nullable|string'
         ]);
+        $paramData = $request->validate($this->parameterRules());
+        $validatedTest['price'] = $validatedTest['price'] ?? 0;
 
-        if (!isset($validatedTest['price']) || $validatedTest['price'] === null) {
-            $validatedTest['price'] = 0;
-        }
-
-        $test = \App\Models\LabTest::create($validatedTest);
-
-        $paramData = $request->only([
-            'unit', 'male_reference', 'female_reference',
-            'male_min', 'male_max', 'female_min', 'female_max',
-            'critical_low', 'critical_high', 'biological_reference', 'is_immunoassay'
-        ]);
-        $paramData['lab_test_id'] = $test->id;
-
-        \App\Models\TestParameter::create($paramData);
+        $test = DB::transaction(function () use ($validatedTest, $paramData) {
+            $test = \App\Models\LabTest::create($validatedTest);
+            \App\Models\TestParameter::create($paramData + ['lab_test_id' => $test->id]);
+            return $test;
+        });
 
         return response()->json(['success' => 'Parameter created successfully!', 'test' => $test]);
     }
@@ -1006,22 +1030,14 @@ class HomeController extends Controller
         $test = \App\Models\LabTest::findOrFail($id);
         
         $validatedTest = $request->validate([
-            'name' => 'required',
-            'price' => 'nullable|numeric',
-            'description' => 'nullable'
+            'name' => 'required|string|max:255',
+            'price' => 'nullable|numeric|min:0',
+            'description' => 'nullable|string'
         ]);
-
-        if (!isset($validatedTest['price']) || $validatedTest['price'] === null) {
-            $validatedTest['price'] = 0;
-        }
+        $paramData = $request->validate($this->parameterRules());
+        $validatedTest['price'] = $validatedTest['price'] ?? 0;
 
         $test->update($validatedTest);
-
-        $paramData = $request->only([
-            'unit', 'male_reference', 'female_reference',
-            'male_min', 'male_max', 'female_min', 'female_max',
-            'critical_low', 'critical_high', 'biological_reference', 'is_immunoassay'
-        ]);
 
         $parameter = \App\Models\TestParameter::updateOrCreate(
             ['lab_test_id' => $test->id],
@@ -1294,160 +1310,97 @@ class HomeController extends Controller
             $validated
         );
 
-        $this->upsertDefaultReferenceInterval($parameter, 'Male');
-        $this->upsertDefaultReferenceInterval($parameter, 'Female');
+        \App\Services\ReferenceRangeService::syncDefaultIntervals($parameter);
 
         return response()->json(['success' => 'Parameters updated successfully!']);
     }
 
     private function buildReportItems(\Illuminate\Http\Request $request, \App\Models\Patient $patient): array
     {
-        $tests = \App\Models\LabTest::with(['parameter', 'referenceIntervals'])->get()->keyBy('name');
-        $items = [];
+        $names = $request->input('test_name', []);
+        $ids = collect($request->input('lab_test_id', []))->filter(fn ($v) => is_numeric($v))->map(fn ($v) => (int) $v);
 
-        foreach ($request->test_name ?? [] as $key => $name) {
-            // Skip empty rows — Dynamic Test Results is fully optional
-            if (empty(trim((string) $name))) {
+        // Prefer the exact parameter id (names repeat across panels); fall back to the name.
+        $byId = \App\Models\LabTest::with(['parameter', 'referenceIntervals'])->whereIn('id', $ids->unique())->get()->keyBy('id');
+        $cleanNames = collect($names)->map(fn ($n) => trim((string) $n))->filter()->unique()->values();
+        $byName = \App\Models\LabTest::with(['parameter', 'referenceIntervals'])->whereIn('name', $cleanNames)->get()->keyBy('name');
+
+        $templateIds = collect($request->input('report_template_id', []))->filter(fn ($v) => is_numeric($v))->unique();
+        $formulas = \App\Models\ReportTemplateItem::whereIn('report_template_id', $templateIds)
+            ->whereNotNull('formula')->where('formula', '!=', '')->get()
+            ->keyBy(fn ($i) => $i->report_template_id . ':' . $i->lab_test_id);
+        $codes = \App\Models\ReportTemplateItem::whereIn('report_template_id', $templateIds)
+            ->whereNotNull('code')->get()
+            ->keyBy(fn ($i) => $i->report_template_id . ':' . $i->lab_test_id);
+
+        $items = [];
+        $sort = 0;
+        foreach ($names as $key => $name) {
+            $name = trim((string) $name);
+            // Skip empty rows — results are optional
+            if ($name === '') {
                 continue;
             }
 
-            $labTest = $tests->get($name);
+            $labTestId = $request->input("lab_test_id.$key");
+            $labTest = (is_numeric($labTestId) ? $byId->get((int) $labTestId) : null) ?? $byName->get($name);
             $parameter = $labTest?->parameter;
-            $reference = $this->resolveReferenceInterval($labTest, $patient);
-            $normalValue = $reference['text']
-                ?? ($request->normal_value[$key] ?? $request->biological_reference[$key] ?? '');
-            $unit = $request->test_unit[$key] ?? $parameter?->unit ?? '';
-            $flag = $this->calculateResultFlag(
-                $request->observed_value[$key] ?? null,
-                $parameter,
-                $reference,
-                $patient->gender
-            ) ?? ($request->test_flag[$key] ?? '');
+            $reference = \App\Services\ReferenceRangeService::resolve($labTest, $patient);
+            $observed = $request->input("observed_value.$key");
+            $observed = $observed === null ? null : trim((string) $observed);
+            $templateId = $request->input("report_template_id.$key");
+            $templateId = is_numeric($templateId) ? (int) $templateId : null;
 
             $items[] = [
                 'lab_test_id' => $labTest?->id,
-                'category' => ($request->test_category[$key] ?? '') ?: 'General',
-                'subcategory' => $request->test_subcategory[$key] ?? '',
+                'report_template_id' => $templateId,
+                'category' => trim((string) $request->input("test_category.$key", '')) ?: 'General',
+                'subcategory' => $request->input("test_subcategory.$key") ?: null,
+                'panel_name' => $request->input("panel_name.$key") ?: null,
                 'name' => $name,
-                'observed_value' => $request->observed_value[$key] ?? null,
-                'unit' => $unit,
-                'normal_value' => $normalValue,
-                'biological_reference' => $request->biological_reference[$key] ?? $normalValue,
-                'flag' => $flag,
-                'sort_order' => $key,
+                'observed_value' => $observed === '' ? null : $observed,
+                'unit' => $request->input("test_unit.$key") ?? $parameter?->unit ?? '',
+                // What the user saw on screen wins; otherwise the patient-specific range.
+                'normal_value' => $request->input("normal_value.$key") ?: ($reference['text'] ?? ($request->input("biological_reference.$key") ?? '')),
+                'biological_reference' => $request->input("biological_reference.$key") ?: ($reference['text'] ?? ''),
+                'flag' => $request->input("test_flag.$key") ?? '',
+                'sort_order' => $sort++,
+                '_parameter' => $parameter,
+                '_reference' => $reference,
+                '_code' => $codes->get($templateId . ':' . $labTest?->id)?->code,
+                '_formula' => $formulas->get($templateId . ':' . $labTest?->id)?->formula,
             ];
         }
 
-        return $items;
-    }
-
-    private function resolveReferenceInterval(?\App\Models\LabTest $labTest, \App\Models\Patient $patient): array
-    {
-        if (!$labTest) {
-            return [];
-        }
-
-        $age = (int) $patient->age;
-        $gender = strtolower((string) $patient->gender);
-        $ageType = strtolower((string) ($patient->age_type ?: 'Years'));
-        $interval = $labTest->referenceIntervals
-            ->filter(function ($interval) use ($age, $gender, $ageType) {
-                $genderMatches = !$interval->gender || strtolower($interval->gender) === $gender || strtolower($interval->gender) === 'any';
-                $minMatches = $interval->age_min === null || $age >= (int) $interval->age_min;
-                $maxMatches = $interval->age_max === null || $age <= (int) $interval->age_max;
-                $ageTypeMatches = !$interval->age_type || strtolower($interval->age_type) === $ageType || strtolower($interval->age_type) === 'any';
-                return $genderMatches && $minMatches && $maxMatches && $ageTypeMatches;
-            })
-            ->sortBy(function ($interval) {
-                $min = $interval->age_min ?? 0;
-                $max = $interval->age_max ?? 200;
-                return $max - $min;
-            })
-            ->first();
-
-        if ($interval) {
-            return [
-                'text' => $interval->reference_text,
-                'min' => $interval->min_value,
-                'max' => $interval->max_value,
-            ];
-        }
-
-        $parameter = $labTest->parameter;
-        if (!$parameter) {
-            return [];
-        }
-
-        $maleRef = $parameter->male_reference;
-        $femaleRef = $parameter->female_reference;
-        
-        $textStr = '';
-        if ($maleRef && $femaleRef && $maleRef !== $femaleRef) {
-            $textStr = "Male: " . $maleRef . "\nFemale: " . $femaleRef;
-        } else {
-            $textStr = ($gender === 'female') ? ($femaleRef ?: $parameter->biological_reference) : ($maleRef ?: $parameter->biological_reference);
-        }
-
-        if ($gender === 'female') {
-            return [
-                'text' => $textStr,
-                'min' => $parameter->female_min,
-                'max' => $parameter->female_max,
-            ];
-        }
-
-        return [
-            'text' => $textStr,
-            'min' => $parameter->male_min,
-            'max' => $parameter->male_max,
-        ];
-    }
-
-    private function calculateResultFlag(mixed $observedValue, ?\App\Models\TestParameter $parameter, array $reference, ?string $gender): ?string
-    {
-        if (!$parameter || !is_numeric($observedValue)) {
-            return null;
-        }
-
-        $value = (float) $observedValue;
-
-        if ($parameter->critical_low !== null && $parameter->critical_low !== '' && $value <= (float) $parameter->critical_low) {
-            return 'C';
-        }
-
-        if ($parameter->critical_high !== null && $parameter->critical_high !== '' && $value >= (float) $parameter->critical_high) {
-            return 'C';
-        }
-
-        if ($parameter->is_immunoassay) {
-            if ($value < 0.9) {
-                return '-';
+        // Calculated parameters left blank: work them out from the other results of the same panel.
+        foreach ($items as &$item) {
+            if ($item['observed_value'] === null && $item['_formula']) {
+                $values = collect($items)
+                    ->filter(fn ($o) => $o['report_template_id'] === $item['report_template_id'] && $o['_code'])
+                    ->mapWithKeys(fn ($o) => [strtoupper($o['_code']) => $o['observed_value']])->all();
+                try {
+                    $value = \App\Services\FormulaService::evaluate($item['_formula'], $values);
+                    if ($value !== null) {
+                        $item['observed_value'] = (string) round($value, 2);
+                    }
+                } catch (\InvalidArgumentException) {
+                    // A broken formula never blocks saving the report.
+                }
             }
-            if ($value <= 1.1) {
-                return '+/-';
+        }
+        unset($item);
+
+        return array_map(function ($item) use ($patient) {
+            $flag = \App\Services\ReferenceRangeService::flag($item['observed_value'], $item['_parameter'], $item['_reference'], $patient->gender);
+            if ($flag !== null) {
+                $item['flag'] = $flag;
             }
-            return '+';
-        }
-
-        $min = $reference['min'] ?? null;
-        $max = $reference['max'] ?? null;
-
-        if ($min === null && $max === null) {
-            $isFemale = strtolower((string) $gender) === 'female';
-            $min = $isFemale ? $parameter->female_min : $parameter->male_min;
-            $max = $isFemale ? $parameter->female_max : $parameter->male_max;
-        }
-
-        if ($min !== null && $value < (float) $min) {
-            return '↓';
-        }
-
-        if ($max !== null && $value > (float) $max) {
-            return '↑';
-        }
-
-        return ($min !== null || $max !== null) ? '' : null;
+            unset($item['_parameter'], $item['_reference'], $item['_code'], $item['_formula']);
+            return $item;
+        }, $items);
     }
+
+
 
     private function serializeReportItem(\App\Models\TestReportItem $item): array
     {
@@ -1460,6 +1413,9 @@ class HomeController extends Controller
             'normal_value' => $item->normal_value,
             'biological_reference' => $item->biological_reference,
             'flag' => $item->flag,
+            'lab_test_id' => $item->lab_test_id,
+            'report_template_id' => $item->report_template_id,
+            'panel_name' => $item->panel_name,
         ];
     }
 
@@ -1530,24 +1486,6 @@ class HomeController extends Controller
         ]);
     }
 
-    private function upsertDefaultReferenceInterval(\App\Models\TestParameter $parameter, string $gender): void
-    {
-        $isFemale = strtolower($gender) === 'female';
-
-        \App\Models\ReferenceInterval::updateOrCreate(
-            [
-                'lab_test_id' => $parameter->lab_test_id,
-                'gender' => $gender,
-                'age_min' => 0,
-                'age_max' => 200,
-            ],
-            [
-                'reference_text' => $isFemale ? $parameter->female_reference : $parameter->male_reference,
-                'min_value' => $isFemale ? $parameter->female_min : $parameter->male_min,
-                'max_value' => $isFemale ? $parameter->female_max : $parameter->male_max,
-            ]
-        );
-    }
 
     public function getReferenceIntervals($id)
     {
@@ -1572,8 +1510,10 @@ class HomeController extends Controller
             $data['age_min'] = 0;
         }
 
-        if ($request->has('interval_id') && $request->interval_id) {
-            $interval = \App\Models\ReferenceInterval::findOrFail($request->interval_id);
+        \App\Models\LabTest::findOrFail($id);
+
+        if ($request->filled('interval_id')) {
+            $interval = \App\Models\ReferenceInterval::where('lab_test_id', $id)->findOrFail($request->interval_id);
             $interval->update($data);
         } else {
             \App\Models\ReferenceInterval::create(array_merge($data, ['lab_test_id' => $id]));
@@ -1603,30 +1543,10 @@ class HomeController extends Controller
     public function storeVitalSign(\Illuminate\Http\Request $request)
     {
         $validated = $request->validate([
-            'patient_id'       => 'required|exists:patients,id',
-            'temperature'      => 'nullable|numeric|between:10,120',
-            'temp_unit'        => 'nullable|in:C,F',
-            'pulse'            => 'nullable|integer|between:10,300',
-            'respiratory_rate' => 'nullable|integer|between:2,100',
-            'blood_pressure'   => 'nullable|string|max:20',
-            'spo2'             => 'nullable|integer|between:0,100',
-            'weight'           => 'nullable|numeric|between:0.1,500',
-            'height'           => 'nullable|numeric|between:10,300',
-            'notes'            => 'nullable|string|max:1000',
-        ]);
+            'patient_id' => 'required|exists:patients,id',
+        ] + \App\Services\VitalSignService::rules());
 
-        if (empty($validated['temp_unit'])) {
-            $validated['temp_unit'] = 'F';
-        }
-
-        // Auto-calculate BMI if weight and height are provided
-        if (!empty($validated['weight']) && !empty($validated['height'])) {
-            $heightInMeters = $validated['height'] / 100;
-            $bmi = round($validated['weight'] / ($heightInMeters * $heightInMeters), 1);
-            $validated['bmi'] = min(999.9, $bmi);
-        } else {
-            $validated['bmi'] = null;
-        }
+        $validated = \App\Services\VitalSignService::prepare($validated);
 
         \App\Models\VitalSign::create($validated);
 
@@ -1644,30 +1564,10 @@ class HomeController extends Controller
         $vitalSign = \App\Models\VitalSign::findOrFail($id);
 
         $validated = $request->validate([
-            'patient_id'       => 'required|exists:patients,id',
-            'temperature'      => 'nullable|numeric|between:10,120',
-            'temp_unit'        => 'nullable|in:C,F',
-            'pulse'            => 'nullable|integer|between:10,300',
-            'respiratory_rate' => 'nullable|integer|between:2,100',
-            'blood_pressure'   => 'nullable|string|max:20',
-            'spo2'             => 'nullable|integer|between:0,100',
-            'weight'           => 'nullable|numeric|between:0.1,500',
-            'height'           => 'nullable|numeric|between:10,300',
-            'notes'            => 'nullable|string|max:1000',
-        ]);
+            'patient_id' => 'required|exists:patients,id',
+        ] + \App\Services\VitalSignService::rules());
 
-        if (empty($validated['temp_unit'])) {
-            $validated['temp_unit'] = 'F';
-        }
-
-        // Auto-calculate BMI if weight and height are provided
-        if (!empty($validated['weight']) && !empty($validated['height'])) {
-            $heightInMeters = $validated['height'] / 100;
-            $bmi = round($validated['weight'] / ($heightInMeters * $heightInMeters), 1);
-            $validated['bmi'] = min(999.9, $bmi);
-        } else {
-            $validated['bmi'] = null;
-        }
+        $validated = \App\Services\VitalSignService::prepare($validated);
 
         $vitalSign->update($validated);
 
@@ -1754,9 +1654,9 @@ class HomeController extends Controller
     public function storePurchase(\Illuminate\Http\Request $request)
     {
         $request->validate([
-            'vendor_name' => 'nullable|string',
+            'vendor_name' => 'nullable|string|max:255',
             'purchase_date' => 'required|date',
-            'notes' => 'nullable|string',
+            'notes' => 'nullable|string|max:2000',
             'items' => 'required|string', // JSON string of items
         ]);
 
@@ -1765,37 +1665,43 @@ class HomeController extends Controller
             return response()->json(['error' => 'At least one valid item is required.'], 422);
         }
 
+        $validator = \Illuminate\Support\Facades\Validator::make(['items' => $items], [
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|integer|exists:products,id',
+            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.unit_price' => 'required|numeric|min:0',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['error' => 'Invalid item format: ' . $validator->errors()->first()], 422);
+        }
+
         $totalAmount = 0;
-        foreach($items as $item) {
-            if (!is_array($item) || !isset($item['quantity']) || !isset($item['unit_price']) || !isset($item['product_id'])) {
-                return response()->json(['error' => 'Invalid item format.'], 422);
-            }
+        foreach ($items as $item) {
             $totalAmount += $item['quantity'] * $item['unit_price'];
         }
 
-        $receipt = \App\Models\PurchaseReceipt::create([
-            'receipt_no' => 'PR-' . strtoupper(uniqid()),
-            'vendor_name' => $request->vendor_name,
-            'purchase_date' => $request->purchase_date,
-            'total_amount' => $totalAmount,
-            'notes' => $request->notes,
-        ]);
-
-        foreach($items as $item) {
-            \App\Models\PurchaseItem::create([
-                'purchase_receipt_id' => $receipt->id,
-                'product_id' => $item['product_id'],
-                'quantity' => $item['quantity'],
-                'unit_price' => $item['unit_price'],
-                'total_price' => $item['quantity'] * $item['unit_price']
+        DB::transaction(function () use ($request, $items, $totalAmount) {
+            $receipt = \App\Models\PurchaseReceipt::create([
+                'receipt_no' => 'PR-' . strtoupper(uniqid()),
+                'vendor_name' => $request->vendor_name,
+                'purchase_date' => $request->purchase_date,
+                'total_amount' => $totalAmount,
+                'notes' => $request->notes,
             ]);
 
-            // Update product stock automatically
-            $product = \App\Models\Product::find($item['product_id']);
-            if ($product) {
-                $product->increment('stock_quantity', $item['quantity']);
+            foreach ($items as $item) {
+                \App\Models\PurchaseItem::create([
+                    'purchase_receipt_id' => $receipt->id,
+                    'product_id' => $item['product_id'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'total_price' => $item['quantity'] * $item['unit_price'],
+                ]);
+
+                // Update product stock automatically
+                \App\Models\Product::whereKey($item['product_id'])->increment('stock_quantity', $item['quantity']);
             }
-        }
+        });
 
         return response()->json(['success' => 'Purchase Receipt created successfully!']);
     }

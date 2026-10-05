@@ -9,8 +9,10 @@ class TestReportItem extends Model
     protected $fillable = [
         'test_report_id',
         'lab_test_id',
+        'report_template_id',
         'category',
         'subcategory',
+        'panel_name',
         'name',
         'observed_value',
         'unit',

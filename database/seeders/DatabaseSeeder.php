@@ -26,11 +26,20 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // 1. Seed Secure Admin User
+        // In production an explicit ADMIN_PASSWORD is required; never ship the dev default.
+        $password = env('ADMIN_PASSWORD');
+        if (empty($password)) {
+            if (app()->isProduction()) {
+                throw new \RuntimeException('Set ADMIN_PASSWORD in .env before seeding a production database.');
+            }
+            $password = '12345678';
+        }
+
         User::updateOrCreate(
-            ['email' => 'lab@gmail.com'],
+            ['email' => env('ADMIN_EMAIL', 'lab@gmail.com')],
             [
-                'name' => 'Safwan',
-                'password' => env('ADMIN_PASSWORD', '12345678'), // Fetched securely from .env
+                'name' => env('ADMIN_NAME', 'Safwan'),
+                'password' => $password,
             ]
         );
 

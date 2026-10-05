@@ -82,7 +82,7 @@ class BackupController extends Controller
     public function restore($file)
     {
         try {
-            $path = 'backups/' . $file;
+            $path = 'backups/' . basename($file);
             $disk = Storage::disk('local');
 
             if (!$disk->exists($path)) {
@@ -109,13 +109,13 @@ class BackupController extends Controller
      */
     public function uploadRestore(Request $request)
     {
-        if (!$request->hasFile('backup_file')) {
+        if (!$request->hasFile('backup_file') || !$request->file('backup_file')->isValid()) {
             return response()->json(['success' => false, 'message' => 'No file uploaded.']);
         }
 
         $file = $request->file('backup_file');
-        
-        if ($file->getClientOriginalExtension() !== 'sql') {
+
+        if (strtolower($file->getClientOriginalExtension()) !== 'sql') {
             return response()->json(['success' => false, 'message' => 'Only .sql files are allowed.']);
         }
 
@@ -149,7 +149,7 @@ class BackupController extends Controller
      */
     public function download($file)
     {
-        $path = 'backups/' . $file;
+        $path = 'backups/' . basename($file);
         $disk = Storage::disk('local');
 
         if ($disk->exists($path)) {
@@ -164,7 +164,7 @@ class BackupController extends Controller
      */
     public function destroy($file)
     {
-        $path = 'backups/' . $file;
+        $path = 'backups/' . basename($file);
         $disk = Storage::disk('local');
 
         if ($disk->exists($path)) {

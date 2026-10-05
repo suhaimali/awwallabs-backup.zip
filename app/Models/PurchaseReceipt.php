@@ -10,6 +10,6 @@ class PurchaseReceipt extends Model
 
     public function items()
     {
-        return $this->hasMany(PurchaseItem::class, 'receipt_id');
+        return $this->hasMany(PurchaseItem::class, 'purchase_receipt_id');
     }
 }

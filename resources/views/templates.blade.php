@@ -404,7 +404,7 @@ $(document).ready(function() {
             let unit = test.parameter ? (test.parameter.unit || '') : '';
             let normalRange = test.parameter ? (test.parameter.biological_reference || '') : '';
 
-            optionsHtml += `<option value="${test.name}" data-id="${test.id}" data-unit="${unit}" data-male-ref="${maleRef}" data-female-ref="${femaleRef}" data-normal="${normalRange}" ${selected}>${test.name}</option>`;
+            optionsHtml += `<option value="${escHtml(test.name)}" data-id="${escHtml(test.id)}" data-unit="${escHtml(unit)}" data-male-ref="${escHtml(maleRef)}" data-female-ref="${escHtml(femaleRef)}" data-normal="${escHtml(normalRange)}" ${selected}>${escHtml(test.name)}</option>`;
         });
 
         let testNameVal = testItem ? testItem.name : '';
@@ -560,11 +560,11 @@ $(document).ready(function() {
                 template.items.forEach(item => {
                     tbodyHtml += `
                     <tr>
-                        <td style="padding:12px 16px; font-weight:600; color:#1e293b;">${item.name}</td>
-                        <td style="padding:12px 16px;"><span class="badge bg-light text-dark border">${item.category}</span> ${item.subcategory ? `<span class="badge bg-light text-muted border">${item.subcategory}</span>` : ''}</td>
-                        <td style="padding:12px 16px; color:#475569;">${item.unit || '-'}</td>
-                        <td style="padding:12px 16px; color:#475569;">${item.normal_value || '-'}</td>
-                        <td style="padding:12px 16px; color:#64748b;">${item.biological_reference || '-'}</td>
+                        <td style="padding:12px 16px; font-weight:600; color:#1e293b;">${escHtml(item.name)}</td>
+                        <td style="padding:12px 16px;"><span class="badge bg-light text-dark border">${escHtml(item.category)}</span> ${item.subcategory ? `<span class="badge bg-light text-muted border">${escHtml(item.subcategory)}</span>` : ''}</td>
+                        <td style="padding:12px 16px; color:#475569;">${escHtml(item.unit || '-')}</td>
+                        <td style="padding:12px 16px; color:#475569;">${escHtml(item.normal_value || '-')}</td>
+                        <td style="padding:12px 16px; color:#64748b;">${escHtml(item.biological_reference || '-')}</td>
                     </tr>`;
                 });
             } else {

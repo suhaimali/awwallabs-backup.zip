@@ -8,7 +8,9 @@
     <meta name="description" content="Sign in to your account on {{ config('app.name', 'AWWAL LAB') }}.">
     <meta name="keywords" content="awwal lab login, lims sign in, laboratory software login">
     <meta name="robots" content="noindex, follow">
-    <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/brand/mark-32.png') }}">
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ asset('images/brand/mark-192.png') }}">
+    <link rel="apple-touch-icon" href="{{ asset('images/brand/mark-180.png') }}">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -99,6 +101,16 @@
             width: 100%;
         }
 
+        .auth-logo-card {
+            background: #fff;
+            border-radius: 20px;
+            padding: 14px 18px;
+            margin: 0 auto 26px;
+            max-width: 260px;
+            box-shadow: 0 8px 32px rgba(0,0,0,.3);
+        }
+        .auth-logo-card img { width: 100%; height: auto; display: block; }
+        .auth-mobile-logo { display: none; }
         .auth-logo-icon {
             width: 80px; height: 80px;
             background: rgba(255,255,255,.12);
@@ -375,6 +387,7 @@
             .auth-left {
                 display: none;
             }
+            .auth-mobile-logo { display: block; width: 150px; height: auto; margin: 0 auto 18px; }
             .auth-right {
                 width: 100%;
                 min-height: 100vh;

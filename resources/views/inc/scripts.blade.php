@@ -11,6 +11,35 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
 
     <script>
+        // ── Escape text before inserting it into HTML strings
+        function escHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // ── Draw a QR code into a jsPDF document as vector squares (crisp in print)
+        function drawQrCode(doc, text, x, y, size) {
+            if (!text || typeof window.qrcode !== 'function') return false;
+            const qr = window.qrcode(0, 'M');
+            qr.addData(text);
+            qr.make();
+            const count = qr.getModuleCount();
+            const quiet = 2;
+            const cell = size / (count + quiet * 2);
+            doc.setFillColor(255, 255, 255);
+            doc.rect(x, y, size, size, 'F');
+            doc.setFillColor(0, 0, 0);
+            for (let r = 0; r < count; r++) {
+                for (let c = 0; c < count; c++) {
+                    if (qr.isDark(r, c)) {
+                        doc.rect(x + (c + quiet) * cell, y + (r + quiet) * cell, cell + 0.02, cell + 0.02, 'F');
+                    }
+                }
+            }
+            return true;
+        }
+
         // ── Hide loader on page load
         window.addEventListener('load', () => {
             setTimeout(() => {

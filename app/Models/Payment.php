@@ -16,4 +16,9 @@ class Payment extends Model
     {
         return $this->belongsTo(Patient::class);
     }
+
+    public function appointments()
+    {
+        return $this->hasMany(Appointment::class);
+    }
 }

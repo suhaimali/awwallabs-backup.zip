@@ -1,7 +1,11 @@
-const CACHE_NAME = 'awwal-lab-v4';
+const CACHE_NAME = 'awwal-lab-v7';
+const OFFLINE_URL = '/offline.html';
 const urlsToCache = [
-  '/',
+  OFFLINE_URL,
+  '/images/brand/mark-32.png',
   '/favicon.svg',
+  '/images/brand/mark-192.png',
+  '/images/brand/logo.png',
   '/css/auth.css',
   '/js/auth.js',
   'https://code.jquery.com/jquery-3.7.1.min.js',
@@ -18,6 +22,7 @@ const urlsToCache = [
   'https://cdn.jsdelivr.net/npm/sweetalert2@11',
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js'
 ];
 
@@ -32,6 +37,12 @@ self.addEventListener('fetch', event => {
   // Skip cross-origin requests and non-GET requests
   if (event.request.method !== 'GET') return;
 
+  // Page loads: go to the network; if the device is offline, show the offline page.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)));
+    return;
+  }
+
   // Only intercept static assets, let navigation/HTML handle redirects normally
   const url = new URL(event.request.url);
   const isAsset = url.pathname.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/) || 
@@ -44,7 +55,7 @@ self.addEventListener('fetch', event => {
       .then(response => {
         return response || fetch(event.request).catch(err => {
           console.warn('ServiceWorker fetch failed:', event.request.url, err);
-          return null; // Return null to let the browser handle the failure naturally
+          return Response.error(); // let the browser report a normal network error
         });
       })
   );

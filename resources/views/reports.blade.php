@@ -837,7 +837,7 @@
 
                 <datalist id="list-observed">
                     @foreach($templates as $tmpl)
-                        <option value="{{ $tmpl->name }}">
+                        <option value="{{ $tmpl->name }}" data-id="{{ $tmpl->id }}"></option>
                     @endforeach
                 </datalist>
 
@@ -952,7 +952,7 @@
       }
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
-  <script src="{{ asset('js/report-pdf.js') }}"></script>
+  <script src="{{ asset('js/report-pdf.js') }}?v={{ filemtime(public_path('js/report-pdf.js')) }}"></script>
   @endpush
 
   <!-- Datalist for Auto-complete -->
@@ -1189,12 +1189,7 @@
                         <div class="col-md-4 col-sm-6">
                             <label class="form-label text-success fs-11 fw-bold text-uppercase mb-1" style="font-size:11px;">Observed Value</label>
                             <div class="input-group flex-nowrap">
-                                <select class="form-select report-observed-select" name="observed_value[]" autocomplete="off">
-                                    <option value="">-- Select Observed --</option>
-                                    @foreach($templates as $tmpl)
-                                        <option value="{{ $tmpl->name }}" data-id="{{ $tmpl->id }}">{{ $tmpl->name }}</option>
-                                    @endforeach
-                                </select>
+                                <input type="text" class="form-control report-observed-select" name="observed_value[]" list="list-observed" placeholder="Enter result" autocomplete="off" maxlength="255">
                                 <button type="button" class="btn btn-success btn-sm btn-add-observed" title="Add Observed" style="padding: 0.25rem 0.5rem;"><i class="fa fa-plus"></i></button>
                                 <button type="button" class="btn btn-primary btn-sm btn-edit-observed" title="Edit Observed" style="padding: 0.25rem 0.5rem;"><i class="fa fa-edit"></i></button>
                                 <button type="button" class="btn btn-info btn-sm btn-view-observed" title="View Observed Details" style="padding: 0.25rem 0.5rem;"><i class="fa fa-eye"></i></button>
@@ -1464,6 +1459,15 @@
               updateSignaturePinRequirement(this);
           });
 
+          function fieldOption(field) {
+              field = $(field);
+              if (field.is('select')) return field.find('option:selected');
+              const listId = field.attr('list');
+              const val = field.val();
+              if (!listId || !val) return $();
+              return $('#' + listId + ' option').filter(function() { return this.value === val; }).first();
+          }
+
           function setSelectValueWithDefault(select, value) {
               if (value === undefined || value === null) {
                   select.val('');
@@ -1606,7 +1610,7 @@
                   let options = '<option value="">-- Select Doctor --</option><option value="Self">Self</option>';
                   (Array.isArray(data) ? data : (data.data || [])).forEach(function(doctor) {
                       let qual = doctor.qualification ? doctor.qualification : '';
-                      options += `<option value="${doctor.name}" data-id="${doctor.id}" data-phone="${doctor.phone || ''}" data-email="${doctor.email || ''}" data-qualification="${qual}">${doctor.name}${qual ? ' (' + qual + ')' : ''}</option>`;
+                      options += `<option value="${escHtml(doctor.name)}" data-id="${escHtml(doctor.id)}" data-phone="${escHtml(doctor.phone || '')}" data-email="${escHtml(doctor.email || '')}" data-qualification="${escHtml(qual)}">${escHtml(doctor.name)}${qual ? ' (' + escHtml(qual) + ')' : ''}</option>`;
                   });
                   $('.report-doctor-select').html(options);
                   if (selectedValue) {
@@ -1688,8 +1692,8 @@
                   let options = '<option value="">-- Select Category --</option>';
                   let modalOptions = '<option value="">-- Select Category --</option>';
                   (Array.isArray(data) ? data : (data.data || [])).forEach(function(cat) {
-                      options += `<option value="${cat.name}" data-id="${cat.id}">${cat.name}</option>`;
-                      modalOptions += `<option value="${cat.id}">${cat.name}</option>`;
+                      options += `<option value="${escHtml(cat.name)}" data-id="${escHtml(cat.id)}">${escHtml(cat.name)}</option>`;
+                      modalOptions += `<option value="${escHtml(cat.id)}">${escHtml(cat.name)}</option>`;
                   });
                   $('.report-category-select').each(function() {
                       let currentVal = $(this).val();
@@ -1770,7 +1774,7 @@
               $.get("{{ route('api.sub-categories') }}", function(data) {
                   let options = '<option value="">-- Select Sub Category --</option>';
                   (Array.isArray(data) ? data : (data.data || [])).forEach(function(sub) {
-                      options += `<option value="${sub.name}" data-id="${sub.id}" data-category_id="${sub.category_id}">${sub.name}</option>`;
+                      options += `<option value="${escHtml(sub.name)}" data-id="${escHtml(sub.id)}" data-category_id="${escHtml(sub.category_id)}">${escHtml(sub.name)}</option>`;
                   });
                   $('.report-subcategory-select').each(function() {
                       let currentVal = $(this).val();
@@ -1868,24 +1872,24 @@
                               gender: r.gender, age_min: r.age_min, age_max: r.age_max, reference_text: r.reference_text, min_value: r.min_value, max_value: r.max_value
                           }));
                           // sanitize quotes
-                          refJson = JSON.stringify(refs).replace(/'/g, "&#39;");
+                          refJson = JSON.stringify(refs);
                       }
-                      options += `<option value="${test.name}" 
-                          data-id="${test.id}"
+                      options += `<option value="${escHtml(test.name)}" 
+                          data-id="${escHtml(test.id)}"
                           data-price="${test.price || 0}"
-                          data-unit="${param.unit || ''}"
-                          data-male-ref="${param.male_reference || ''}"
-                          data-female-ref="${param.female_reference || ''}"
-                          data-male-min="${param.male_min || ''}"
-                          data-male-max="${param.male_max || ''}"
-                          data-female-min="${param.female_min || ''}"
-                          data-female-max="${param.female_max || ''}"
-                          data-critical-low="${param.critical_low || ''}"
-                          data-critical-high="${param.critical_high || ''}"
-                          data-reference-intervals='${refJson}'
+                          data-unit="${escHtml(param.unit || '')}"
+                          data-male-ref="${escHtml(param.male_reference || '')}"
+                          data-female-ref="${escHtml(param.female_reference || '')}"
+                          data-male-min="${escHtml(param.male_min || '')}"
+                          data-male-max="${escHtml(param.male_max || '')}"
+                          data-female-min="${escHtml(param.female_min || '')}"
+                          data-female-max="${escHtml(param.female_max || '')}"
+                          data-critical-low="${escHtml(param.critical_low || '')}"
+                          data-critical-high="${escHtml(param.critical_high || '')}"
+                          data-reference-intervals='${escHtml(refJson)}'
                           data-is-immunoassay="${param.is_immunoassay || 0}"
-                          data-bio-ref="${param.biological_reference || ''}"
-                          data-normal="${test.description || ''}">${test.name}</option>`;
+                          data-bio-ref="${escHtml(param.biological_reference || '')}"
+                          data-normal="${escHtml(test.description || '')}">${escHtml(test.name)}</option>`;
                   });
                   options += '<option value="Immunoassay Test">Immunoassay Test (Auto-calc)</option>';
 
@@ -1970,7 +1974,7 @@
               $.get("{{ route('units.index') }}", function(data) {
                   let options = '<option value="">-- Select Unit --</option>';
                   (Array.isArray(data) ? data : (data.data || [])).forEach(function(u) {
-                      options += `<option value="${u.name}" data-id="${u.id}">${u.name}</option>`;
+                      options += `<option value="${escHtml(u.name)}" data-id="${escHtml(u.id)}">${escHtml(u.name)}</option>`;
                   });
                   $('.report-unit-select').each(function() {
                       let currentVal = $(this).val();
@@ -2036,7 +2040,7 @@
               $.get("{{ route('reference-templates.index') }}", function(data) {
                   let options = '<option value="">-- Select Reference --</option>';
                   (Array.isArray(data) ? data : (data.data || [])).forEach(function(ref) {
-                      options += `<option value="${ref.name}" data-id="${ref.id}">${ref.name}</option>`;
+                      options += `<option value="${escHtml(ref.name)}" data-id="${escHtml(ref.id)}">${escHtml(ref.name)}</option>`;
                   });
                   $('.normal-val-dynamic, .bio-val-dynamic').each(function() {
                       let currentVal = $(this).val();
@@ -2058,25 +2062,13 @@
 
           function fetchReportObserved(selectedValue = null) {
               $.get("{{ route('result-templates.index') }}", function(data) {
-                  let options = '<option value="">-- Select Observed --</option>';
+                  const list = $('#list-observed').empty();
                   (Array.isArray(data) ? data : (data.data || [])).forEach(function(tmpl) {
-                      options += `<option value="${tmpl.name}" data-id="${tmpl.id}">${tmpl.name}</option>`;
+                      list.append($('<option>').attr('value', tmpl.name).attr('data-id', tmpl.id));
                   });
-                  $('.report-observed-select').each(function() {
-                      let currentVal = $(this).val();
-                      let currentSelectedId = $(this).find('option:selected').attr('data-id');
-                      $(this).html(options);
-                      if (selectedValue && $(this).hasClass('active-observed-select')) {
-                          $(this).val(selectedValue).removeClass('active-observed-select').trigger('change');
-                      } else if (currentSelectedId) {
-                          let opt = $(this).find(`option[data-id="${currentSelectedId}"]`);
-                          if (opt.length) {
-                              $(this).val(opt.val()).trigger('change');
-                          }
-                      } else {
-                          $(this).val(currentVal).trigger('change');
-                      }
-                  });
+                  if (selectedValue) {
+                      $('.report-observed-select.active-observed-select').val(selectedValue).removeClass('active-observed-select').trigger('change');
+                  }
               });
           }
 
@@ -2084,7 +2076,7 @@
               $.get("{{ route('flag-templates.index') }}", function(data) {
                   let options = '<option value="">-- Select Reference --</option>';
                   (Array.isArray(data) ? data : (data.data || [])).forEach(function(flg) {
-                      options += `<option value="${flg.name}" data-id="${flg.id}">${flg.name}</option>`;
+                      options += `<option value="${escHtml(flg.name)}" data-id="${escHtml(flg.id)}">${escHtml(flg.name)}</option>`;
                   });
                   $('.flag-selector').each(function() {
                       let currentVal = $(this).val();
@@ -2116,7 +2108,7 @@
 
           $(document).on('click', '.btn-edit-observed', function() {
               let select = $(this).closest('.test-item-row').find('.report-observed-select');
-              let selectedOption = select.find('option:selected');
+              let selectedOption = fieldOption(select);
               let observedName = selectedOption.val();
               if (!observedName) { alert('Please select a valid observed value to edit.'); return; }
               $('.report-observed-select').removeClass('active-observed-select');
@@ -2312,12 +2304,17 @@
               btn.html('<i class="fa fa-spinner fa-spin"></i> Saving...').prop('disabled', true);
 			  
 			  $.post("{{ route('reports.store') }}", $('#form-add-report').serialize(), function(response) {
-				  alert(response.success);
+				  showToast(response.success);
 				  refreshReportsPageData('#modal-add-report', btn, 'Generate Report');
                   $('#form-add-report')[0].reset();
                   $('#dynamic-tests-container').empty();
+                  // Last step of the visit flow: show the finished report (with its QR code).
+                  if (response.id && window.openReportViewer) {
+                      $('#modal-add-report').one('hidden.bs.modal', function() { window.openReportViewer(response.id); });
+                  }
 			  }).fail(function(xhr) {
-                  let errorMsg = xhr.responseJSON.message || "Error saving report. Please check all fields.";
+                  let json = xhr.responseJSON || {};
+                  let errorMsg = json.errors ? Object.values(json.errors).map(e => e[0]).join('\n') : (json.message || "Error saving report. Please check all fields.");
 				  alert(errorMsg);
                   btn.html('Generate Report').prop('disabled', false);
 			  });
@@ -2484,12 +2481,7 @@
                           <div class="col-md-4 col-sm-6">
                               <label class="form-label text-success fs-11 fw-bold text-uppercase mb-1" style="font-size:11px;">Observed Value</label>
                               <div class="input-group flex-nowrap">
-                                  <select class="form-select report-observed-select" name="observed_value[]" autocomplete="off">
-                                      <option value="">-- Select Observed --</option>
-                                      @foreach($templates as $tmpl)
-                                          <option value="{{ $tmpl->name }}" data-id="{{ $tmpl->id }}">{{ $tmpl->name }}</option>
-                                      @endforeach
-                                  </select>
+                                  <input type="text" class="form-control report-observed-select" name="observed_value[]" list="list-observed" placeholder="Enter result" autocomplete="off" maxlength="255">
                                   <button type="button" class="btn btn-success btn-sm btn-add-observed" title="Add Observed" style="padding: 0.25rem 0.5rem;"><i class="fa fa-plus"></i></button>
                                   <button type="button" class="btn btn-primary btn-sm btn-edit-observed" title="Edit Observed" style="padding: 0.25rem 0.5rem;"><i class="fa fa-edit"></i></button>
                                   <button type="button" class="btn btn-info btn-sm btn-view-observed" title="View Observed Details" style="padding: 0.25rem 0.5rem;"><i class="fa fa-eye"></i></button>
@@ -2600,11 +2592,44 @@
                       refreshReportsPageData('#modal-edit-report', btn, 'Update Report');
                   },
                   error: function(xhr) {
-                      alert(xhr.responseJSON.message || "Error updating report.");
+                      let json = xhr.responseJSON || {};
+                      alert(json.errors ? Object.values(json.errors).map(e => e[0]).join('\n') : (json.message || "Error updating report."));
                       btn.html('Update Report').prop('disabled', false);
                   }
               });
 		  });
+
+          // ── Arriving from the visit workflow / patient list ──────────────
+          const PREFILL = @json($prefill);
+          const OPEN_REPORT_ID = @json($openReportId);
+
+          if (PREFILL) {
+              const $modal = $('#modal-add-report');
+              $modal.one('shown.bs.modal', function() {
+                  $('#add-patient-id').val(String(PREFILL.patient_id)).trigger('change');
+                  const setDoctor = function() { setSelectValueWithDefault($('#add-report-doctor'), PREFILL.doctor_name || 'Self'); };
+                  setDoctor();
+                  $(document).one('ajaxStop', setDoctor); // doctor list may still be loading
+
+                  if (PREFILL.tests.length) {
+                      const container = $('#dynamic-tests-container').empty();
+                      PREFILL.tests.forEach(function(name) {
+                          const row = $(trTemplate);
+                          container.append(row);
+                          const testSelect = row.find('.test-selector-dynamic');
+                          setSelectValueWithDefault(testSelect, name);
+                          testSelect.trigger('change');
+                      });
+                      updateRowSlNo('#dynamic-tests-container');
+                  }
+              });
+              $modal.modal('show');
+              if (window.history.replaceState) {
+                  window.history.replaceState({}, '', window.location.pathname);
+              }
+          } else if (OPEN_REPORT_ID && window.openReportViewer) {
+              window.openReportViewer(OPEN_REPORT_ID);
+          }
 
 	  });
   </script>
@@ -3267,16 +3292,16 @@
                   let html = `
                       <div class="table-responsive-modern">
                           <table class="table table-bordered table-striped mb-0">
-                              <tr><th width="35%">Patient ID</th><td><strong class="text-primary">${data.patient_id || ''}</strong></td></tr>
-                              <tr><th>First Name</th><td>${data.first_name || ''}</td></tr>
-                              <tr><th>Last Name</th><td>${data.last_name || ''}</td></tr>
-                              <tr><th>Gender</th><td><span class="badge bg-secondary">${data.gender || ''}</span></td></tr>
-                              <tr><th>Age</th><td>${data.age || ''} ${data.age_type || 'Years'}</td></tr>
-                              <tr><th>Phone</th><td>${data.phone || 'N/A'}</td></tr>
-                              <tr><th>Email</th><td>${data.email || 'N/A'}</td></tr>
-                              <tr><th>Reference Doctor</th><td>${data.reference_dr || 'Self'}</td></tr>
-                              <tr><th>Status</th><td><span class="badge bg-success">${data.status || 'Active'}</span></td></tr>
-                              <tr><th>Address</th><td>${data.address || 'N/A'}</td></tr>
+                              <tr><th width="35%">Patient ID</th><td><strong class="text-primary">${escHtml(data.patient_id || '')}</strong></td></tr>
+                              <tr><th>First Name</th><td>${escHtml(data.first_name || '')}</td></tr>
+                              <tr><th>Last Name</th><td>${escHtml(data.last_name || '')}</td></tr>
+                              <tr><th>Gender</th><td><span class="badge bg-secondary">${escHtml(data.gender || '')}</span></td></tr>
+                              <tr><th>Age</th><td>${escHtml(data.age || '')} ${escHtml(data.age_type || 'Years')}</td></tr>
+                              <tr><th>Phone</th><td>${escHtml(data.phone || 'N/A')}</td></tr>
+                              <tr><th>Email</th><td>${escHtml(data.email || 'N/A')}</td></tr>
+                              <tr><th>Reference Doctor</th><td>${escHtml(data.reference_dr || 'Self')}</td></tr>
+                              <tr><th>Status</th><td><span class="badge bg-success">${escHtml(data.status || 'Active')}</span></td></tr>
+                              <tr><th>Address</th><td>${escHtml(data.address || 'N/A')}</td></tr>
                           </table>
                       </div>
                   `;
@@ -3306,10 +3331,10 @@
               let html = `
                   <div class="table-responsive-modern">
                       <table class="table table-bordered table-striped mb-0">
-                          <tr><th width="35%">Doctor Name</th><td><strong class="text-primary">${doctorName}</strong></td></tr>
-                          <tr><th>Qualification</th><td>${qualification}</td></tr>
-                          <tr><th>Phone</th><td>${phone}</td></tr>
-                          <tr><th>Email</th><td>${email}</td></tr>
+                          <tr><th width="35%">Doctor Name</th><td><strong class="text-primary">${escHtml(doctorName)}</strong></td></tr>
+                          <tr><th>Qualification</th><td>${escHtml(qualification)}</td></tr>
+                          <tr><th>Phone</th><td>${escHtml(phone)}</td></tr>
+                          <tr><th>Email</th><td>${escHtml(email)}</td></tr>
                       </table>
                   </div>
               `;
@@ -3337,12 +3362,12 @@
               let html = `
                   <div class="table-responsive-modern">
                       <table class="table table-bordered table-striped mb-0">
-                          <tr><th width="35%">Name</th><td><strong class="text-primary">${name}</strong></td></tr>
+                          <tr><th width="35%">Name</th><td><strong class="text-primary">${escHtml(name)}</strong></td></tr>
                           <tr>
                               <th>Signature Image</th>
                               <td>
                                   <div class="text-center bg-light p-3 rounded border">
-                                      <img src="${imageUrl}" alt="Signature Image" style="max-height: 100px; max-width: 100%; object-fit: contain;">
+                                      <img src="${escHtml(imageUrl)}" alt="Signature Image" style="max-height: 100px; max-width: 100%; object-fit: contain;">
                                   </div>
                               </td>
                           </tr>
@@ -3370,8 +3395,8 @@
           $(document).on('click', '.btn-delete-flag', function() { handleDeleteClick($(this), 'flag', 'flag'); });
 
           function handleDeleteClick(btn, label, type) {
-              let select = btn.siblings('select');
-              let selectedOption = select.find('option:selected');
+              let select = btn.siblings('select, input');
+              let selectedOption = fieldOption(select);
               let id = selectedOption.attr('data-id');
               let val = select.val();
               
@@ -3398,14 +3423,14 @@
               let html = `
                   <div class="table-responsive-modern">
                       <table class="table table-bordered table-striped mb-0">
-                          <tr><th width="35%">Test Name</th><td><strong class="text-primary">${name}</strong></td></tr>
-                          <tr><th>Price</th><td>${selectedOption.attr('data-price') || '<span class="text-muted">—</span>'}</td></tr>
-                          <tr><th>Unit</th><td>${selectedOption.attr('data-unit') || '<span class="text-muted">—</span>'}</td></tr>
-                          <tr><th>Male Ref.</th><td>${selectedOption.attr('data-male-ref') || '<span class="text-muted">—</span>'}</td></tr>
-                          <tr><th>Female Ref.</th><td>${selectedOption.attr('data-female-ref') || '<span class="text-muted">—</span>'}</td></tr>
-                          <tr><th>Critical Low</th><td>${selectedOption.attr('data-critical-low') || '<span class="text-muted">—</span>'}</td></tr>
-                          <tr><th>Critical High</th><td>${selectedOption.attr('data-critical-high') || '<span class="text-muted">—</span>'}</td></tr>
-                          <tr><th>Biological Reference</th><td>${bioRef ? bioRef : '<span class="text-muted">—</span>'}</td></tr>
+                          <tr><th width="35%">Test Name</th><td><strong class="text-primary">${escHtml(name)}</strong></td></tr>
+                          <tr><th>Price</th><td>${escHtml(selectedOption.attr('data-price')) || '<span class="text-muted">—</span>'}</td></tr>
+                          <tr><th>Unit</th><td>${escHtml(selectedOption.attr('data-unit')) || '<span class="text-muted">—</span>'}</td></tr>
+                          <tr><th>Male Ref.</th><td>${escHtml(selectedOption.attr('data-male-ref')) || '<span class="text-muted">—</span>'}</td></tr>
+                          <tr><th>Female Ref.</th><td>${escHtml(selectedOption.attr('data-female-ref')) || '<span class="text-muted">—</span>'}</td></tr>
+                          <tr><th>Critical Low</th><td>${escHtml(selectedOption.attr('data-critical-low')) || '<span class="text-muted">—</span>'}</td></tr>
+                          <tr><th>Critical High</th><td>${escHtml(selectedOption.attr('data-critical-high')) || '<span class="text-muted">—</span>'}</td></tr>
+                          <tr><th>Biological Reference</th><td>${bioRef ? escHtml(bioRef) : '<span class="text-muted">—</span>'}</td></tr>
                       </table>
                   </div>
               `;
@@ -3419,8 +3444,8 @@
           $(document).on('click', '.btn-view-flag', function() { handleViewClick($(this), 'flag', 'Flag', 'fa-flag'); });
 
           function handleViewClick(btn, type, label, icon) {
-              let select = btn.siblings('select');
-              let selectedOption = select.find('option:selected');
+              let select = btn.siblings('select, input');
+              let selectedOption = fieldOption(select);
               let id = selectedOption.attr('data-id');
               let name = select.val() || selectedOption.text();
               
@@ -3434,12 +3459,12 @@
               let html = `
                   <div class="table-responsive-modern">
                       <table class="table table-bordered table-striped mb-0">
-                          <tr><th width="35%">${label} Name</th><td><strong class="text-primary">${name}</strong></td></tr>
+                          <tr><th width="35%">${label} Name</th><td><strong class="text-primary">${escHtml(name)}</strong></td></tr>
               `;
 
               if (type === 'category') {
                   let desc = select.find('option:selected').attr('data-desc');
-                  html += `<tr><th>Description</th><td>${desc ? desc : '<span class="text-muted">—</span>'}</td></tr>`;
+                  html += `<tr><th>Description</th><td>${desc ? escHtml(desc) : '<span class="text-muted">—</span>'}</td></tr>`;
               } else if (type === 'subcategory') {
                   let catId = select.find('option:selected').attr('data-category_id');
                   let catName = '<span class="text-muted">—</span>';
@@ -3453,8 +3478,8 @@
                       }
                   }
                   let desc = select.find('option:selected').attr('data-desc');
-                  html += `<tr><th>Parent Category</th><td><strong>${catName}</strong></td></tr>`;
-                  html += `<tr><th>Description</th><td>${desc ? desc : '<span class="text-muted">—</span>'}</td></tr>`;
+                  html += `<tr><th>Parent Category</th><td><strong>${escHtml(catName)}</strong></td></tr>`;
+                  html += `<tr><th>Description</th><td>${desc ? escHtml(desc) : '<span class="text-muted">—</span>'}</td></tr>`;
               }
 
               html += `

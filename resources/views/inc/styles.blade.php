@@ -59,6 +59,7 @@
             flex-shrink: 0;
         }
         .sidebar-brand .brand-icon i { color: #fff; font-size: 16px; }
+        .sidebar-brand .brand-logo { width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0; object-fit: contain; background: #fff; }
         .sidebar-brand .brand-name {
             font-size: 16px; font-weight: 700;
             color: var(--primary); white-space: nowrap;

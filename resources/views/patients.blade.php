@@ -368,9 +368,14 @@
             <div style="font-size:13px;font-weight:400;color:var(--text-muted);margin-top:2px;">Manage all patient records</div>
         </div>
     </div>
-    <button type="button" class="btn-aw-primary" data-bs-toggle="modal" data-bs-target="#modal-add-patient">
-        <i class="fa fa-plus"></i> <span>Add New Patient</span>
-    </button>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{{ route('visits.create') }}" class="btn-aw-primary">
+            <i class="fa fa-route"></i> <span>New Visit</span>
+        </a>
+        <button type="button" class="btn-aw-outline" data-bs-toggle="modal" data-bs-target="#modal-add-patient">
+            <i class="fa fa-plus"></i> <span>Quick Add Patient</span>
+        </button>
+    </div>
 </div>
 <section>
 <div class="aw-card patients-card mb-4">
@@ -402,10 +407,9 @@
                     <tbody>
                         @foreach($patients as $patient)
                             @php
-                                $latestApp = $patient->appointments->last();
-                                $totalPrice = $latestApp->test_price ?? 0;
-                                $totalDiscount = $latestApp->discount ?? 0;
-                                $netBalance = $latestApp->balance ?? ($totalPrice - $totalDiscount);
+                                $totalPrice = (float) $patient->total_amount;
+                                $totalDiscount = (float) $patient->discount;
+                                $netBalance = (float) $patient->balance;
 
                                 // Generate initials for avatar
                                 $firstNameInitial = substr(trim($patient->first_name), 0, 1);
@@ -464,7 +468,7 @@
                                 <!-- Financial Status (Amount, Discount, Balance) -->
                                 <td data-label="Financial Status">
                                     <div class="financial-block">
-                                        @if($netBalance == 0)
+                                        @if($netBalance <= 0)
                                             <div class="net-balance paid">
                                                 <i class="fa-solid fa-circle-check me-1"></i>₹0.00
                                             </div>
@@ -495,8 +499,8 @@
 
                                 <!-- Status (Active / Inactive) -->
                                 <td data-label="Status">
-                                    <span class="status-dot-badge {{ strtolower($patient->status) == 'active' ? 'active' : 'inactive' }}">
-                                        <span class="status-dot {{ strtolower($patient->status) == 'active' ? 'active' : 'inactive' }}"></span>
+                                    <span class="status-dot-badge {{ strtolower((string) $patient->status) == 'active' ? 'active' : 'inactive' }}">
+                                        <span class="status-dot {{ strtolower((string) $patient->status) == 'active' ? 'active' : 'inactive' }}"></span>
                                         {{ $patient->status }}
                                     </span>
                                 </td>
@@ -504,6 +508,14 @@
                                 <!-- Action Buttons -->
                                 <td class="text-end" data-label="Actions">												
                                     <div class="action-buttons justify-content-end">
+                                        @if($patient->pending_tests_count > 0)
+                                            <a class="btn-action-circle btn-results" href="{{ route('reports', ['create_for' => $patient->id]) }}" title="Enter results ({{ $patient->pending_tests_count }} pending)" style="color:#ea580c;border-color:#fed7aa;">
+                                                <i class="fa fa-vial-circle-check"></i>
+                                            </a>
+                                        @endif
+                                        <a class="btn-action-circle" href="{{ route('visits.create', ['patient' => $patient->id]) }}" title="New visit for this patient">
+                                            <i class="fa fa-route"></i>
+                                        </a>
                                         <button class="btn-action-circle btn-view" data-id="{{ $patient->id }}" data-bs-toggle="modal" data-bs-target="#modal-view-patient" title="View Details">
                                             <i class="fa fa-eye"></i>
                                         </button>
@@ -555,13 +567,13 @@
 					<div class="col-md-6">
 						<div class="form-group">
 							<label for="field_1037" class="form-label">First Name</label>
-							<input type="text" class="form-control" name="first_name" placeholder="First Name" autocomplete="off" id="field_1037">
+							<input type="text" class="form-control" name="first_name" placeholder="First Name" autocomplete="off" id="field_1037" required>
 						</div>
 					</div>
 					<div class="col-md-6">
 						<div class="form-group">
 							<label for="field_1038" class="form-label">Last Name</label>
-							<input type="text" class="form-control" name="last_name" placeholder="Last Name" autocomplete="off" id="field_1038">
+							<input type="text" class="form-control" name="last_name" placeholder="Last Name" autocomplete="off" id="field_1038" required>
 						</div>
 					</div>
 				</div>
@@ -580,7 +592,7 @@
 						<div class="form-group">
 							<label for="field_1040" class="form-label">Age</label>
 							<div class="input-group flex-nowrap">
-								<input type="number" class="form-control" name="age" placeholder="Age" autocomplete="off" id="field_1040" min="0" max="150">
+								<input type="number" class="form-control" name="age" placeholder="Age" autocomplete="off" id="field_1040" required min="0" max="150">
 								<select class="form-select" name="age_type" autocomplete="off" style="max-width: 110px;" id="field_1000">
 									<option value="Years">Years</option>
 									<option value="Months">Months</option>
@@ -627,10 +639,9 @@
 							<label for="field_payment_method" class="form-label">Payment Mode</label>
 							<select class="form-select" name="payment_method" autocomplete="off" id="field_payment_method">
 								<option value="">-- Select Payment Mode --</option>
-								<option value="Cash">Cash</option>
-								<option value="Card">Card</option>
-								<option value="UPI">UPI</option>
-								<option value="Net Banking">Net Banking</option>
+								@foreach(\App\Services\BillingService::PAYMENT_METHODS as $method)
+									<option value="{{ $method }}">{{ $method }}</option>
+								@endforeach
 							</select>
 						</div>
 					</div>
@@ -731,9 +742,9 @@
           <div class="vp-name" id="view-full-name">Patient Name</div>
           <div class="vp-meta">
             <span class="vp-id-badge" id="view-patient-id">#0000</span>
-            <span>Â·</span>
+            <span>·</span>
             <span id="view-gender">—</span>
-            <span>Â·</span>
+            <span>·</span>
             <span id="view-age">—</span>
           </div>
         </div>
@@ -810,13 +821,13 @@
 					<div class="col-md-6">
 						<div class="form-group">
 							<label for="edit-first-name" class="form-label">First Name</label>
-							<input type="text" class="form-control" id="edit-first-name" name="first_name" placeholder="First Name" autocomplete="off">
+							<input type="text" class="form-control" id="edit-first-name" required name="first_name" placeholder="First Name" autocomplete="off">
 						</div>
 					</div>
 					<div class="col-md-6">
 						<div class="form-group">
 							<label for="edit-last-name" class="form-label">Last Name</label>
-							<input type="text" class="form-control" id="edit-last-name" name="last_name" placeholder="Last Name" autocomplete="off">
+							<input type="text" class="form-control" id="edit-last-name" required name="last_name" placeholder="Last Name" autocomplete="off">
 						</div>
 					</div>
 				</div>
@@ -835,7 +846,7 @@
 						<div class="form-group">
 							<label for="edit-age" class="form-label">Age</label>
 							<div class="input-group flex-nowrap">
-								<input type="number" class="form-control" id="edit-age" name="age" placeholder="Age" autocomplete="off" min="0" max="150">
+								<input type="number" class="form-control" id="edit-age" required name="age" placeholder="Age" autocomplete="off" min="0" max="150">
 								<select class="form-select" id="edit-age-type" name="age_type" autocomplete="off" style="max-width: 110px;">
 									<option value="Years">Years</option>
 									<option value="Months">Months</option>
@@ -882,10 +893,9 @@
 							<label for="edit-payment-method" class="form-label">Payment Mode</label>
 							<select class="form-select" name="payment_method" id="edit-payment-method" autocomplete="off">
 								<option value="">-- Select Payment Mode --</option>
-								<option value="Cash">Cash</option>
-								<option value="Card">Card</option>
-								<option value="UPI">UPI</option>
-								<option value="Net Banking">Net Banking</option>
+								@foreach(\App\Services\BillingService::PAYMENT_METHODS as $method)
+									<option value="{{ $method }}">{{ $method }}</option>
+								@endforeach
 							</select>
 						</div>
 					</div>
@@ -956,86 +966,6 @@
 		  <div class="modal-footer modal-footer-uniform">
 			<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
 			<button type="button" class="btn btn-danger float-end" id="btn-confirm-delete">Delete Permanently</button>
-		  </div>
-		</div>
-	  </div>
-  </div>
-
-  <!-- Quick Book Test Modal -->
-  <div class="modal center-modal fade" id="modal-patient-book-test" tabindex="-1" aria-hidden="true">
-	  <div class="modal-dialog">
-		<div class="modal-content">
-		  <div class="modal-header">
-			<h5 class="modal-title">Book Lab Test for <span id="book-test-patient-name" class="text-primary ms-1"></span></h5>
-			<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-		  </div>
-		  <div class="modal-body">
-			<form id="form-quick-book">
-				<input type="hidden" name="patient_id" id="quick-book-patient-id">
-				<div class="form-group">
-					<label for="quick-book-test-name" class="form-label">Test Name</label>
-					<select class="form-select" name="test_name" id="quick-book-test-name" required autocomplete="off">
-						<option value="">-- Select Test --</option>
-						@foreach($labTests as $test)
-							<option value="{{ $test->name }}" data-price="{{ $test->price }}">{{ $test->name }}</option>
-						@endforeach
-					</select>
-				</div>
-				<div class="row">
-					<div class="col-md-6 col-12">
-						<div class="form-group">
-							<label for="quick-book-price" class="form-label">Price (₹)</label>
-							<input type="number" step="0.01" class="form-control" name="test_price" id="quick-book-price" required autocomplete="off">
-						</div>
-					</div>
-					<div class="col-md-6 col-12">
-						<div class="form-group">
-							<label for="quick-book-discount" class="form-label text-danger">Discount (₹)</label>
-							<input type="number" step="0.01" class="form-control" name="test_discount" id="quick-book-discount" value="0.00" autocomplete="off">
-						</div>
-					</div>
-				</div>
-				<div class="row">
-					<div class="col-md-6 col-12">
-						<div class="form-group">
-							<label for="quick-book-advance" class="form-label">Advance Paid (₹)</label>
-							<input type="number" step="0.01" class="form-control" name="advance_paid" id="quick-book-advance" value="0.00" autocomplete="off">
-						</div>
-					</div>
-					<div class="col-md-6 col-12">
-						<div class="form-group">
-							<label for="quick-book-balance" class="form-label">Balance Due (₹)</label>
-							<input type="number" step="0.01" class="form-control" name="balance" id="quick-book-balance" value="0.00" readonly autocomplete="off">
-						</div>
-					</div>
-				</div>
-
-				<div class="text-end mb-2 pe-3">
-					<span style="font-size:16px; font-weight:700; color:var(--text-dark);">Net Payable: ₹<span id="quick-book-net-payable">0.00</span></span>
-				</div>
-				<div class="row">
-					<div class="col-6">
-						<div class="form-group">
-							<label for="field_1061" class="form-label">Date</label>
-							<input type="date" class="form-control" name="appointment_date" value="{{ date('Y-m-d') }}" required autocomplete="off" id="field_1061">
-						</div>
-					</div>
-					<div class="col-6">
-						<div class="form-group">
-							<label for="field_1062" class="form-label">Status</label>
-							<select class="form-select" name="status" autocomplete="off" id="field_1062">
-								<option value="Scheduled">Scheduled</option>
-								<option value="Pending">Pending</option>
-								<option value="Completed">Completed</option>
-							</select>
-						</div>
-					</div>
-				</div>
-			</form>
-		  </div>
-		  <div class="modal-footer">
-			<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-			<button type="button" class="btn btn-primary" id="btn-quick-book-save">Confirm Booking</button>
 		  </div>
 		</div>
 	  </div>
@@ -1177,8 +1107,6 @@
 
   <!-- JavaScript -->
   @push('scripts')
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
   <script>
 	  $(document).ready(function() {
 		  // Set CSRF Token for all AJAX requests
@@ -1230,7 +1158,8 @@
 			  patientTable.search($(this).val()).draw();
 		  });
 
-		  // Generate Invoice
+		  // Generate Invoice (all tests booked for the patient, with a QR to the patient card)
+		  const LAB = @json(config('lab'));
 		  $(document).on('click', '.btn-invoice', function(e) {
 			  e.preventDefault();
 			  let id = $(this).data('id');
@@ -1239,151 +1168,115 @@
 			  btn.html('<i class="fa fa-spinner fa-spin"></i>').addClass('disabled');
 
 			  $.get("/patients/" + id, function(patient) {
-				  // Fetch appointments for this patient to get test details
-				  $.get("{{ route('appointments') }}", function(appointments) {
-					  const patientAppointments = appointments.filter(a => a.patient_id == patient.id);
-					  
-					  const { jsPDF } = window.jspdf;
-					  const doc = new jsPDF();
+				  const patientAppointments = patient.appointments || [];
+				  const patientNo = String(patient.patient_id || '').replace('#P-', '').replace('#', '');
+				  const { jsPDF } = window.jspdf;
+				  const doc = new jsPDF();
 
-					  // --- Header ---
-					  doc.setFont("helvetica", "bold");
-					  doc.setFontSize(22);
-					  doc.setTextColor(0);
-					  doc.text("AWWAL LAB", 20, 20);
-					  
-					  doc.setFontSize(10);
-					  doc.setFont("helvetica", "normal");
-					  doc.setTextColor(0); // Black
-					  doc.text("A Muhammed's Complex Chenayikunnu Road Jn.", 20, 26);
-					  doc.text("PATHAPPIRIYAM, Vayanasala", 20, 31);
-					  doc.text("Ph: 7034 250 209, 7559 049 948 | Email: awwallabppm@gmail.com", 20, 36);
-					  doc.text("Website: https://awwallabs.in/", 20, 41);
-					  
-					  doc.setDrawColor(0);
-					  doc.setLineWidth(0.5);
-					  doc.line(20, 46, 190, 46);
+				  // --- Header ---
+				  doc.setFont("helvetica", "bold");
+				  doc.setFontSize(20);
+				  doc.setTextColor(0);
+				  doc.text(LAB.name, 20, 20);
+				  doc.setFontSize(9);
+				  doc.setFont("helvetica", "normal");
+				  doc.text(doc.splitTextToSize(LAB.address, 105), 20, 26);
+				  doc.text(`Ph: ${LAB.phone} | Email: ${LAB.email}`, 20, 36);
+				  doc.text(`Website: ${LAB.website}`, 20, 41);
+				  doc.setDrawColor(0);
+				  doc.setLineWidth(0.5);
+				  doc.line(20, 46, 190, 46);
 
-					  // --- Invoice Info ---
-					  doc.setFontSize(10);
-                      doc.setTextColor(0);
-					  doc.setFont("helvetica", "bold");
-					  doc.text("INVOICE DETAILS", 140, 26);
-					  doc.setFont("helvetica", "normal");
-					  const now = new Date();
-					  const dateStr = now.toLocaleDateString();
-					  const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-					  doc.text(`Date: ${dateStr} ${timeStr}`, 140, 32);
-					  doc.text(`Invoice No: INV-${patient.id}${Math.floor(Math.random() * 1000)}`, 140, 38);
+				  // --- Invoice Info ---
+				  doc.setFontSize(10);
+				  doc.setFont("helvetica", "bold");
+				  doc.text("INVOICE", 140, 22);
+				  doc.setFont("helvetica", "normal");
+				  doc.setFontSize(9);
+				  doc.text(`Date: ${moment().format('DD-MMM-YYYY hh:mm A')}`, 140, 28);
+				  doc.text(`Invoice No: INV-${patientNo}`, 140, 33);
 
-					  // --- Patient Info ---
-					  doc.setFont("helvetica", "bold");
-					  doc.text("PATIENT INFORMATION:", 20, 54);
-					  
-					  doc.setFontSize(9);
-					  // Column 1
-					  doc.setFont("helvetica", "bold"); doc.text("Name:", 20, 60);
-					  doc.setFont("helvetica", "normal"); doc.text(`${patient.first_name} ${patient.last_name}`, 45, 60);
-					  
-					  doc.setFont("helvetica", "bold"); doc.text("Patient ID:", 20, 65);
-					  doc.setFont("helvetica", "normal"); doc.text(`${patient.patient_id.replace('#P-', '').replace('#', '')}`, 45, 65);
-					  
-					  doc.setFont("helvetica", "bold"); doc.text("Age / Gender:", 20, 70);
-					  doc.setFont("helvetica", "normal"); doc.text(`${patient.age} ${patient.age_type || 'Years'} / ${patient.gender}`, 45, 70);
-					  
-					  doc.setFont("helvetica", "bold"); doc.text("Phone:", 20, 75);
-					  doc.setFont("helvetica", "normal"); doc.text(`${patient.phone || 'N/A'}`, 45, 75);
+				  // --- Patient Info ---
+				  doc.setFontSize(10);
+				  doc.setFont("helvetica", "bold");
+				  doc.text("PATIENT INFORMATION:", 20, 54);
+				  doc.setFontSize(9);
+				  const field = (label, value, x, y) => {
+					  doc.setFont("helvetica", "bold"); doc.text(label, x, y);
+					  doc.setFont("helvetica", "normal"); doc.text(String(value), x + 27, y);
+				  };
+				  field("Name:", `${patient.first_name} ${patient.last_name}`, 20, 60);
+				  field("Patient ID:", patientNo, 20, 65);
+				  field("Age / Gender:", `${patient.age} ${patient.age_type || 'Years'} / ${patient.gender}`, 20, 70);
+				  field("Phone:", patient.phone || 'N/A', 20, 75);
+				  field("Ref. Dr:", patient.reference_dr || 'Self', 105, 60);
+				  field("Payment Mode:", patient.payment_method || 'N/A', 105, 65);
+				  doc.setFont("helvetica", "bold"); doc.text("Address:", 105, 70);
+				  doc.setFont("helvetica", "normal");
+				  doc.text(doc.splitTextToSize(patient.address || 'N/A', 55), 132, 70);
 
-					  // Column 2
-					  doc.setFont("helvetica", "bold"); doc.text("Ref. Dr:", 105, 60);
-					  doc.setFont("helvetica", "normal"); doc.text(`${patient.reference_dr || 'Self'}`, 135, 60);
-					  
-					  doc.setFont("helvetica", "bold"); doc.text("Payment Mode:", 105, 65);
-					  doc.setFont("helvetica", "normal"); doc.text(`${patient.payment_method || 'N/A'}`, 135, 65);
-					  
-					  doc.setFont("helvetica", "bold"); doc.text("Address:", 105, 70);
-					  doc.setFont("helvetica", "normal"); 
-                      let addressText = patient.address || 'N/A';
-                      // Split address if it's too long
-                      let splitAddress = doc.splitTextToSize(addressText, 55);
-                      doc.text(splitAddress, 135, 70);
-
-					  // --- Table ---
-					  const tableData = patientAppointments.map((app, index) => [
-						  index + 1,
-						  app.test_name || "General Lab Test",
-						  app.appointment_date,
-						  `${parseFloat(app.test_price || 0).toFixed(2)}`
-					  ]);
-
-					  if (tableData.length === 0) {
-						  tableData.push([1, "Consultation/Registration", new Date().toISOString().split('T')[0], "0.00"]);
-					  }
-
-					  doc.autoTable({
-						  startY: 92,
-						  head: [['S.No', 'Description of Services/Tests', 'Date', 'Amount (INR)']],
-						  body: tableData,
-						  theme: 'grid',
-						  headStyles: { 
-							  fillColor: [240, 240, 240], 
-							  textColor: [0, 0, 0], 
-							  fontStyle: 'bold',
-							  lineWidth: 0.1,
-							  lineColor: [0, 0, 0]
-						  },
-						  styles: { 
-							  fontSize: 9,
-							  cellPadding: 3,
-							  lineColor: [0, 0, 0],
-							  lineWidth: 0.1
-						  }
-					  });
-
-					  const finalY = doc.lastAutoTable.finalY + 10;
-					  const subTotal = patientAppointments.reduce((sum, app) => sum + parseFloat(app.test_price || 0), 0);
-					  const totalDiscount = patientAppointments.reduce((sum, app) => sum + parseFloat(app.discount || 0), 0);
-					  const netPayable = subTotal - totalDiscount;
-					  const advancePaid = parseFloat(patient.advance_paid || 0);
-					  const balanceDue = parseFloat(patient.balance || 0);
-
-					  // --- Summary ---
-					  doc.setFontSize(10);
-					  doc.setFont("helvetica", "normal");
-					  doc.text("Sub-Total:", 120, finalY);
-					  doc.text(`${subTotal.toFixed(2)}`, 190, finalY, { align: "right" });
-					  
-					  doc.text("Total Discount:", 120, finalY + 6);
-					  doc.text(`${totalDiscount.toFixed(2)}`, 190, finalY + 6, { align: "right" });
-
-					  doc.text("Net Payable Amount:", 120, finalY + 12);
-					  doc.text(`${netPayable.toFixed(2)}`, 190, finalY + 12, { align: "right" });
-
-					  doc.text("Advance Paid:", 120, finalY + 18);
-					  doc.text(`${advancePaid.toFixed(2)}`, 190, finalY + 18, { align: "right" });
-
-					  doc.setFont("helvetica", "bold");
-					  doc.text("BALANCE DUE:", 120, finalY + 26);
-					  doc.setFontSize(12);
-					  doc.setTextColor(0); // Black
-					  doc.text(`${balanceDue.toFixed(2)}`, 190, finalY + 26, { align: "right" });
-
-					  // --- Footer / Signatures ---
-					  doc.setFontSize(9);
-					  doc.setFont("helvetica", "normal");
-					  doc.text("Terms & Conditions:", 20, 250);
-					  doc.text("1. This is a computer generated invoice and does not require a physical signature.", 20, 256);
-					  doc.text("2. Please preserve this invoice for future reference and report collection.", 20, 261);
-
-					  doc.line(140, 270, 190, 270);
-					  doc.text("Authorized Signatory", 150, 276);
-
-					  doc.save(`Invoice_${patient.first_name}_${patient.patient_id.replace('#P-', '').replace('#', '')}.pdf`);
-					  btn.html(originalHtml).removeClass('disabled');
-				  }).fail(function() {
-					  alert("Failed to fetch appointment records.");
-					  btn.html(originalHtml).removeClass('disabled');
+				  // --- Table ---
+				  const tableData = patientAppointments.map((app, index) => [
+					  index + 1,
+					  app.test_name || "General Lab Test",
+					  moment(app.appointment_date).format('DD-MM-YYYY'),
+					  parseFloat(app.test_price || 0).toFixed(2),
+					  parseFloat(app.discount || 0).toFixed(2),
+				  ]);
+				  if (tableData.length === 0) {
+					  tableData.push([1, "Consultation/Registration", moment().format('DD-MM-YYYY'), "0.00", "0.00"]);
+				  }
+				  doc.autoTable({
+					  startY: 88,
+					  head: [['S.No', 'Description of Services/Tests', 'Date', 'Amount (INR)', 'Discount']],
+					  body: tableData,
+					  theme: 'grid',
+					  headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', lineWidth: 0.1, lineColor: [0, 0, 0] },
+					  styles: { fontSize: 9, cellPadding: 3, lineColor: [0, 0, 0], lineWidth: 0.1 },
+					  columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' } },
 				  });
+
+				  let finalY = doc.lastAutoTable.finalY + 10;
+				  if (finalY > 205) { doc.addPage(); finalY = 25; }
+				  const subTotal = patientAppointments.reduce((sum, app) => sum + parseFloat(app.test_price || 0), 0);
+				  const totalDiscount = patientAppointments.reduce((sum, app) => sum + parseFloat(app.discount || 0), 0);
+				  const netPayable = subTotal - totalDiscount;
+				  const advancePaid = parseFloat(patient.advance_paid || 0);
+				  const balanceDue = netPayable - advancePaid;
+
+				  // --- Summary ---
+				  const sumLine = (label, value, y, bold = false) => {
+					  doc.setFont("helvetica", bold ? "bold" : "normal");
+					  doc.text(label, 120, y);
+					  doc.text(value.toFixed(2), 190, y, { align: "right" });
+				  };
+				  doc.setFontSize(10);
+				  sumLine("Sub-Total:", subTotal, finalY);
+				  sumLine("Total Discount:", totalDiscount, finalY + 6);
+				  sumLine("Net Payable Amount:", netPayable, finalY + 12);
+				  sumLine("Amount Paid:", advancePaid, finalY + 18);
+				  doc.setFontSize(12);
+				  sumLine("BALANCE DUE:", balanceDue, finalY + 26, true);
+
+				  // --- QR: opens the patient's bills & reports online ---
+				  if (drawQrCode(doc, patient.public_url, 20, finalY - 4, 30)) {
+					  doc.setFont("helvetica", "normal");
+					  doc.setFontSize(7.5);
+					  doc.text("Scan for your reports & bills", 52, finalY + 8);
+					  doc.text("(results appear when ready)", 52, finalY + 12);
+				  }
+
+				  // --- Footer / Signatures ---
+				  doc.setFontSize(9);
+				  doc.setFont("helvetica", "normal");
+				  doc.text("Terms & Conditions:", 20, 250);
+				  doc.text("1. This is a computer generated invoice and does not require a physical signature.", 20, 256);
+				  doc.text("2. Please preserve this invoice for future reference and report collection.", 20, 261);
+				  doc.line(140, 270, 190, 270);
+				  doc.text("Authorized Signatory", 150, 276);
+
+				  doc.save(`Invoice_${patient.first_name}_${patientNo}.pdf`);
+				  btn.html(originalHtml).removeClass('disabled');
 			  }).fail(function() {
 				  alert("Failed to fetch patient data.");
 				  btn.html(originalHtml).removeClass('disabled');
@@ -1403,7 +1296,7 @@
 					  let phone = doctor.phone ? doctor.phone : '';
 					  let email = doctor.email ? doctor.email : '';
 					  let qual = doctor.qualification ? doctor.qualification : '';
-					  options += '<option value="' + doctor.name + '" data-id="'+doctor.id+'" data-phone="'+phone+'" data-email="'+email+'" data-qualification="'+qual+'">' + doctor.name + '</option>';
+					  options += '<option value="' + escHtml(doctor.name) + '" data-id="'+doctor.id+'" data-phone="'+escHtml(phone)+'" data-email="'+escHtml(email)+'" data-qualification="'+escHtml(qual)+'">' + escHtml(doctor.name) + '</option>';
 				  });
 				  $('.reference-dr-select').html(options);
                    if (selectedValue) {
@@ -1514,11 +1407,17 @@
 
 		  // Save Patient
 		  $('#btn-save-patient').click(function() {
+			  const form = $('#form-add-patient')[0];
+			  if (!form.checkValidity()) { form.reportValidity(); return; }
+			  let btn = $(this);
+			  if (btn.prop('disabled')) return;
+			  btn.prop('disabled', true);
 			  let formData = $('#form-add-patient').serialize();
 			  $.post("{{ route('patients.store') }}", formData, function(response) {
 				  alert(response.success);
 				  location.reload();
 			  }).fail(function(xhr) {
+				  btn.prop('disabled', false);
 				  if (xhr.status === 422) {
 					  let errors = xhr.responseJSON.errors;
 					  let errorMsg = "Validation Errors:\n";
@@ -1529,45 +1428,6 @@
 				  } else {
 					  alert("Something went wrong. Please try again.");
 				  }
-			  });
-		  });
-
-		  // Book Appointment Quick Feature
-		  $(document).on('click', '.btn-book-appointment', function() {
-			  $('#quick-book-patient-id').val($(this).data('id'));
-			  $('#book-test-patient-name').text($(this).data('name'));
-			  $('#form-quick-book')[0].reset();
-			  $('#quick-book-net-payable').text('0.00');
-		  });
-
-		  $('#quick-book-test-name').change(function() {
-			  let price = $(this).find(':selected').data('price');
-			  $('#quick-book-price').val(price ? parseFloat(price).toFixed(2) : '');
-			  calculateQuickBookNet();
-		  });
-
-		  $('#quick-book-price, #quick-book-discount, #quick-book-advance').on('input', calculateQuickBookNet);
-
-		  function calculateQuickBookNet() {
-			  let price = parseFloat($('#quick-book-price').val()) || 0;
-			  let discount = parseFloat($('#quick-book-discount').val()) || 0;
-			  let advance = parseFloat($('#quick-book-advance').val()) || 0;
-			  let net = price - discount;
-			  if (net < 0) net = 0;
-			  let balance = net - advance;
-			  $('#quick-book-net-payable').text(net.toFixed(2));
-			  $('#quick-book-balance').val(balance.toFixed(2));
-		  }
-
-		  $('#btn-quick-book-save').click(function() {
-			  let btn = $(this);
-			  btn.html('<i class="fa fa-spinner fa-spin me-2"></i> Booking...').addClass('disabled');
-			  $.post("{{ route('appointments.store') }}", $('#form-quick-book').serialize(), function(response) {
-				  alert(response.success);
-				  location.reload();
-			  }).fail(function() {
-				  alert("Error booking test.");
-				  btn.html('Confirm Booking').removeClass('disabled');
 			  });
 		  });
 
@@ -1651,7 +1511,7 @@
                           @foreach($labTests as $test)
                               optionsHtml += `<option value="{{ $test->name }}" data-id="{{ $test->id }}" data-price="{{ $test->price }}" ${!isCustom && app.test_name == {!! json_encode($test->name) !!} ? 'selected' : ''}>{{ $test->name }}</option>`;
                           @endforeach
-                          optionsHtml += `<option value="__custom__">âœ ï¸  Custom (type below)</option>`;
+                          optionsHtml += `<option value="__custom__">Custom (type below)</option>`;
 
                           testRowsHtml += `
                             <div class="row test-row mb-2 align-items-center">
@@ -1693,7 +1553,7 @@
                       @foreach($labTests as $test)
                           emptyOptions += `<option value="{{ $test->name }}" data-id="{{ $test->id }}" data-price="{{ $test->price }}">{{ $test->name }}</option>`;
                       @endforeach
-                      emptyOptions += `<option value="__custom__">âœ ï¸  Custom (type below)</option>`;
+                      emptyOptions += `<option value="__custom__">Custom (type below)</option>`;
 
                       testRowsHtml = `
                         <div class="row test-row mb-2 align-items-center">
@@ -1748,7 +1608,7 @@
 							@foreach($labTests as $test)
 								<option value="{{ $test->name }}" data-id="{{ $test->id }}" data-price="{{ $test->price }}">{{ $test->name }}</option>
 							@endforeach
-							<option value="__custom__">âœ ï¸  Custom (type below)</option>
+							<option value="__custom__">Custom (type below)</option>
 						</select>
 						<button type="button" class="btn btn-success btn-add-test" style="background-color: #d1fae5; color: #059669; border-color: #cbd5e1;" title="Add New Test"><i class="fa fa-plus"></i></button>
 						<button type="button" class="btn btn-primary btn-edit-test" style="background-color: #dbeafe; color: #2563eb; border-color: #cbd5e1;" title="Edit Selected Test"><i class="fa fa-edit"></i></button>
@@ -1799,7 +1659,7 @@
 						@foreach($labTests as $test)
 							<option value="{{ $test->name }}" data-price="{{ $test->price }}">{{ $test->name }}</option>
 						@endforeach
-						<option value="__custom__">âœ ï¸  Custom (type below)</option>
+						<option value="__custom__">Custom (type below)</option>
 					</select>
 					<div class="test-name-custom-wrap" style="display:none;">
 						<div class="input-group">
@@ -1923,6 +1783,8 @@
 
 		  // Update Patient
 		  $('#btn-update-patient').click(function() {
+			  const form = $('#form-edit-patient')[0];
+			  if (!form.checkValidity()) { form.reportValidity(); return; }
 			  let id = $('#edit-id').val();
               let btn = $(this);
               btn.html('<i class="fa fa-spinner fa-spin me-2"></i> Updating...').addClass('disabled');
@@ -1933,6 +1795,7 @@
 				  alert(response.success);
 				  location.reload();
 			  }).fail(function(xhr) {
+				  btn.html('<i class="fa fa-check"></i> Update Patient').removeClass('disabled');
 				  if (xhr.status === 422) {
 					  let errors = xhr.responseJSON.errors;
 					  let errorMsg = "Validation Errors:\n";

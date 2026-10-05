@@ -10,8 +10,6 @@ class DatabaseDumper
     public static function dump(string $path)
     {
         $tables = DB::select('SHOW TABLES');
-        $dbName = env('DB_DATABASE', 'awwal_lab');
-        $property = 'Tables_in_' . $dbName;
 
         $sql = "-- Database Backup generated securely via pure PHP\n";
         $sql .= "-- Generation Time: " . date('Y-m-d H:i:s') . "\n\n";

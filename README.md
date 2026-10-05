@@ -1,6 +1,6 @@
 # SUHAIM SOFT - Advanced Laboratory Management System
 
-SUHAIM SOFT is a comprehensive, highly secure, and modern Laboratory Information Management System (LIMS) built on the powerful **Laravel 11** framework. It is meticulously designed to streamline the management of clinical patients, laboratory tests, dynamic reference intervals, billing, and highly specialized diagnostic reporting.
+SUHAIM SOFT is a comprehensive, highly secure, and modern Laboratory Information Management System (LIMS) built on the powerful **Laravel 12** framework. It is meticulously designed to streamline the management of clinical patients, laboratory tests, dynamic reference intervals, billing, and highly specialized diagnostic reporting.
 
 ## 🚀 Key Features
 
@@ -13,6 +13,12 @@ SUHAIM SOFT is a comprehensive, highly secure, and modern Laboratory Information
 * **Optimized Workflow UI:** Fast, inline "Edit" buttons directly linked to drop-down fields across reports.
 * **Master Data Configuration:** Manage clinical units of measurement, reference text templates, and flag templates from a centralized UI.
 * **Progressive Web App (PWA):** Fully PWA-ready with service workers, manifest configuration, and installability on mobile/desktop devices.
+
+### Visit Workflow & QR Verification
+* **One-flow visits (`/visits/new`):** Find a returning patient or register a new one → pick tests or a package (with discount, amount received and payment mode) → optional vital signs → confirm. One bill is created for the visit, and the next screen opens **Generate Report** pre-filled with the patient, referring doctor and every pending test, so staff only type results. Saving the report opens it straight away with its QR code.
+* **Work queue:** The dashboard lists patients still waiting for results (oldest first), and the Patients list shows an *Enter results* shortcut for anyone with pending tests.
+* **QR codes:** Every printed lab report carries a QR code that opens `/r/{token}`, a mobile-friendly copy of that report. Every invoice carries one that opens `/p/{token}`, which lists the patient's reports, booked tests and bills. Tokens are random 40-character strings, so the pages need no login but cannot be guessed. They are rate-limited and marked `noindex`.
+* **Consistent billing:** Each booked test is linked to the bill it was charged on. Editing a patient or a booking only recalculates that bill, and the patient's totals are always the sum of their tests.
 
 ### Recent Updates
 * **Database Optimization:** Removed all traces of SQLite (`database.sqlite`, fallback connections) to enforce a strict, 100% MySQL architecture.
@@ -28,7 +34,7 @@ SUHAIM SOFT is a comprehensive, highly secure, and modern Laboratory Information
 
 ## 💻 Tech Stack
 
-* **Backend:** Laravel 11 (PHP 8.2+)
+* **Backend:** Laravel 12 (PHP 8.2+)
 * **Database:** MySQL
 * **Frontend Engine:** Laravel Blade
 * **Frontend:** HTML5, CSS3, JavaScript (jQuery + AJAX), Bootstrap 5
@@ -151,6 +157,28 @@ Open your browser and visit:
 ```
 http://127.0.0.1:8000
 ```
+
+## 🚢 Production Deployment (Docker)
+
+1. `cp .env.example .env` and set at least:
+   `APP_KEY` (`php artisan key:generate --show`), `APP_URL` (the public https URL, because QR codes link to it),
+   `DB_PASSWORD`, `DB_ROOT_PASSWORD`, `INCOME_REPORT_PASSWORD`, `ADMIN_PASSWORD` and the `LAB_*` details.
+2. `docker compose up -d --build`. The entrypoint waits for MySQL, runs migrations and caches config, routes and views.
+3. First boot only: set `RUN_SEEDERS=true` to create the admin user and load the test catalogue, then set it back to `false`.
+4. Put the app behind HTTPS. HSTS is sent automatically on secure requests.
+
+> `APP_URL` must be the address patients can reach. The QR codes printed on reports and invoices are built from it.
+
+## ✅ Running the Tests
+
+The feature tests need a MySQL database named `awwal_lab_test` (see `phpunit.xml`):
+
+```bash
+mysql -e "CREATE DATABASE awwal_lab_test"
+php artisan test
+```
+
+They cover every page, billing consistency, the visit → report flow, the QR pages, signature PINs, purchases and backup-path safety.
 
 ## 🔧 Troubleshooting
 

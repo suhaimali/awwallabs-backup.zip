@@ -53,7 +53,7 @@
                 </div>
                 <div class="stat-text">
                     <div class="stat-num">₹{{ number_format($totalCollection, 2) }}</div>
-                    <div class="stat-lbl">Total Collection for {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</div>
+                    <div class="stat-lbl">Collected on {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</div>
                 </div>
             </div>
         </div>
@@ -116,7 +116,7 @@
                             <th>Patient Details</th>
                             <th>Method</th>
                             <th class="text-end">Total</th>
-                            <th class="text-end">Advance</th>
+                            <th class="text-end">Collected</th>
                             <th class="text-end">Balance</th>
                             <th class="text-end">Net Amt</th>
                         </tr>
@@ -137,7 +137,7 @@
                                 <td data-label="Total" class="text-end">
                                     ₹{{ number_format($payment->total_amount, 2) }}
                                 </td>
-                                <td data-label="Advance" class="text-end" style="color:#059669; font-weight:600;">
+                                <td data-label="Collected" class="text-end" style="color:#059669; font-weight:600;">
                                     ₹{{ number_format($payment->advance_paid, 2) }}
                                 </td>
                                 <td data-label="Balance" class="text-end" style="color:#ef4444;">
@@ -159,8 +159,10 @@
                     @if($payments->count() > 0)
                     <tfoot>
                         <tr style="background:#f1f5f9; font-weight:700;">
-                            <td colspan="6" class="text-end py-3">TOTAL COLLECTION:</td>
+                            <td colspan="4" class="text-end py-3">TOTAL COLLECTED (excl. refunds):</td>
                             <td class="text-end py-3" style="font-size:18px; color:#16a34a;">₹{{ number_format($totalCollection, 2) }}</td>
+                            <td class="text-end py-3" style="color:#ef4444;">₹{{ number_format($payments->where('payment_status', '!=', 'Refunded')->sum(fn ($p) => max(0, (float) $p->balance_due)), 2) }}</td>
+                            <td class="text-end py-3">₹{{ number_format($payments->where('payment_status', '!=', 'Refunded')->sum('net_amount'), 2) }}</td>
                         </tr>
                     </tfoot>
                     @endif

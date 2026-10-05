@@ -3,6 +3,8 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\PublicRecordController;
+use App\Http\Controllers\VisitController;
 
 // Authentication Routes
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
@@ -14,6 +16,12 @@ Route::get('/', function() {
     return view('welcome');
 })->name('home');
 
+// Public pages opened from the QR code on printed reports / invoices
+Route::middleware('throttle:60,1')->group(function () {
+    Route::get('/r/{token}', [PublicRecordController::class, 'report'])->where('token', '[A-Za-z0-9]{40}')->name('public.report');
+    Route::get('/p/{token}', [PublicRecordController::class, 'patient'])->where('token', '[A-Za-z0-9]{40}')->name('public.patient');
+});
+
 // Protected Dashboard Routes
 Route::middleware(['auth'])->group(function () {
     // Redirect /home to dashboard
@@ -22,6 +30,11 @@ Route::middleware(['auth'])->group(function () {
     // Dashboard served by HomeController@index
     Route::get('/dashboard', [HomeController::class, 'index'])->name('dashboard');
     Route::get('/about', function() { return redirect()->route('dashboard'); });
+
+    // Unified visit workflow: register -> bill -> vitals -> results -> report
+    Route::get('/visits/new', [VisitController::class, 'create'])->name('visits.create');
+    Route::post('/visits', [VisitController::class, 'store'])->name('visits.store');
+    Route::get('/visits/patient-search', [VisitController::class, 'searchPatients'])->name('visits.patient-search');
     Route::get('/appointments', [HomeController::class, 'appointments'])->name('appointments');
     Route::get('/reports', [HomeController::class, 'reports'])->name('reports');
     Route::post('/reports', [HomeController::class, 'storeReport'])->name('reports.store');
@@ -30,6 +43,8 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/reports/{id}', [HomeController::class, 'deleteReport'])->name('reports.delete');
 
     // Report Signatures
+    Route::post('/report-builder/rows', [\App\Http\Controllers\ReportBuilderController::class, 'rows'])->name('report-builder.rows');
+
     Route::get('/report-signatures', [HomeController::class, 'reportSignatures'])->name('report-signatures.index');
     Route::post('/report-signatures', [HomeController::class, 'storeReportSignature'])->name('report-signatures.store');
     Route::get('/report-signatures/{id}/image', [HomeController::class, 'reportSignatureImage'])->name('report-signatures.image');
@@ -42,19 +57,20 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/payments', [HomeController::class, 'payments'])->name('payments');
     Route::post('/payments', [HomeController::class, 'storePayment'])->name('payments.store');
     Route::get('/payments/{id}', [HomeController::class, 'getPayment'])->name('payments.show');
+    Route::post('/payments/{id}/settle', [HomeController::class, 'settlePayment'])->name('payments.settle');
     Route::put('/payments/{id}', [HomeController::class, 'updatePayment'])->name('payments.update');
     Route::delete('/payments/{id}', [HomeController::class, 'deletePayment'])->name('payments.delete');
 
     // Income Report
     Route::get('/income-report', [HomeController::class, 'incomeReport'])->name('income-report');
-    Route::post('/income-report/unlock', [HomeController::class, 'unlockIncomeReport'])->name('income-report.unlock');
+    Route::post('/income-report/unlock', [HomeController::class, 'unlockIncomeReport'])->middleware('throttle:10,1')->name('income-report.unlock');
 
     // Daily Collection
     Route::get('/daily-collection', [HomeController::class, 'dailyCollection'])->name('daily-collection');
-    Route::post('/daily-collection/unlock', [HomeController::class, 'unlockDailyCollection'])->name('daily-collection.unlock');
+    Route::post('/daily-collection/unlock', [HomeController::class, 'unlockDailyCollection'])->middleware('throttle:10,1')->name('daily-collection.unlock');
 
     // Password Verification
-    Route::post('/verify-admin-password', [HomeController::class, 'verifyAdminPassword'])->name('verify-admin-password');
+    Route::post('/verify-admin-password', [HomeController::class, 'verifyAdminPassword'])->middleware('throttle:10,1')->name('verify-admin-password');
 
     // Accounts & Purchase Management
     Route::get('/products', [HomeController::class, 'productsIndex'])->name('products.index');
@@ -162,10 +178,10 @@ Route::middleware(['auth'])->group(function () {
     // Backup Routes
     Route::get('/backups', [\App\Http\Controllers\BackupController::class, 'index'])->name('backups.index');
     Route::post('/backups/create', [\App\Http\Controllers\BackupController::class, 'create'])->name('backups.create');
-    Route::post('/backups/restore/{file}', [\App\Http\Controllers\BackupController::class, 'restore'])->name('backups.restore');
+    Route::post('/backups/restore/{file}', [\App\Http\Controllers\BackupController::class, 'restore'])->name('backups.restore')->where('file', '[A-Za-z0-9._-]+\.sql');
     Route::post('/backups/upload-restore', [\App\Http\Controllers\BackupController::class, 'uploadRestore'])->name('backups.upload-restore');
-    Route::get('/backups/download/{file}', [\App\Http\Controllers\BackupController::class, 'download'])->name('backups.download');
-    Route::delete('/backups/delete/{file}', [\App\Http\Controllers\BackupController::class, 'destroy'])->name('backups.delete');
+    Route::get('/backups/download/{file}', [\App\Http\Controllers\BackupController::class, 'download'])->name('backups.download')->where('file', '[A-Za-z0-9._-]+\.sql');
+    Route::delete('/backups/delete/{file}', [\App\Http\Controllers\BackupController::class, 'destroy'])->name('backups.delete')->where('file', '[A-Za-z0-9._-]+\.sql');
 });
 
 

@@ -38,6 +38,16 @@
         color: #3b82f6;
         background: #eff6ff;
     }
+    /* Purchase items: stack each row as a card on phones */
+    @media (max-width: 575px) {
+        #purchase-items-table thead { display: none; }
+        #purchase-items-table tbody tr.purchase-item-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border-color); }
+        #purchase-items-table tbody tr.purchase-item-row td { border: 0; padding: 0; }
+        #purchase-items-table tbody td.item-product { grid-column: 1 / -1; }
+        #purchase-items-table tbody td[data-label]::before { content: attr(data-label); display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); }
+        #purchase-items-table tbody td.item-total-text { grid-column: 1 / 3; text-align: left !important; }
+        #purchase-items-table tfoot td[colspan] { text-align: left !important; }
+    }
 </style>
 @endpush
 
@@ -300,18 +310,18 @@
         
         let tr = `
             <tr class="purchase-item-row">
-                <td>
+                <td class="item-product">
                     <select class="form-select product-select" required onchange="onProductSelect(this)">
                         ${productOptions}
                     </select>
                 </td>
-                <td>
-                    <input type="number" step="0.01" class="form-control item-price" required oninput="calculateTotals()" placeholder="0.00">
+                <td data-label="Unit Price">
+                    <input type="number" step="0.01" min="0" class="form-control item-price" required oninput="calculateTotals()" placeholder="0.00">
                 </td>
-                <td>
-                    <input type="number" class="form-control item-qty" value="1" min="1" required oninput="calculateTotals()">
+                <td data-label="Qty">
+                    <input type="number" class="form-control item-qty" value="1" min="1" step="1" required oninput="calculateTotals()">
                 </td>
-                <td class="text-end item-total-text" style="font-weight:600;">₹0.00</td>
+                <td class="text-end item-total-text" data-label="Total" style="font-weight:600;">₹0.00</td>
                 <td class="text-center">
                     <button type="button" class="btn btn-sm btn-light text-danger" onclick="$(this).closest('tr').remove(); calculateTotals();">
                         <i class="fa fa-times"></i>

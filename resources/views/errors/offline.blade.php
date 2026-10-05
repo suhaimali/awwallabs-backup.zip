@@ -1,25 +1,52 @@
-@extends('layouts.auth')
-
-@section('title', 'No Internet Connection')
-
-@section('content')
-<div style="width: 100%; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; background-color: #ffffff; text-align: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-
-    <!-- No Internet Icon -->
-    <svg style="width: 80px; height: 80px; color: #2563eb; margin-bottom: 20px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
-        <line x1="3" y1="3" x2="21" y2="21" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"/>
-    </svg>
-
-    <h2 style="font-size: 22px; font-weight: 600; color: #1e293b; margin-bottom: 6px;">No Internet Connection</h2>
-    <p style="color: #64748b; font-size: 14px; margin-bottom: 12px;">Check your internet connection and try again.</p>
-
-
-    <button onclick="window.location.reload()" style="background-color: #2563eb; color: #ffffff; border: none; padding: 10px 28px; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer;">
-        Try again
-    </button>
-
-
-
-</div>
-@endsection
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>Service temporarily unavailable</title>
+    <link rel="icon" type="image/png" href="/images/brand/mark-32.png">
+    <style>
+        :root { --primary: #1a56db; --text: #1e293b; --muted: #64748b; }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #f0f4ff; color: var(--text); }
+        .card { width: 100%; max-width: 420px; background: #fff; border-radius: 18px; padding: 32px 26px; text-align: center; box-shadow: 0 10px 40px rgba(26,86,219,.12); }
+        .logo { width: 84px; height: 84px; object-fit: contain; margin-bottom: 14px; }
+        .icon { width: 56px; height: 56px; margin: 0 auto 10px; color: #d97706; }
+        h1 { font-size: 21px; margin: 0 0 8px; }
+        p { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0 0 20px; }
+        button { background: var(--primary); color: #fff; border: 0; padding: 11px 26px; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; max-width: 240px; }
+        button:disabled { opacity: .7; cursor: wait; }
+        .hint { font-size: 12.5px; color: var(--muted); margin-top: 14px; min-height: 18px; }
+    </style>
+</head>
+<body>
+<main class="card" role="alert">
+    <img class="logo" src="/images/brand/mark-192.png" alt="Suhaimsoft Lab" onerror="this.style.display='none'">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path stroke-linecap="round" d="M7 7.5h.01M7 16.5h.01"/></svg>
+    <h1>We’ll be right back</h1>
+    <p>The lab server is not responding at the moment. Your data is safe — please wait a few seconds; this page will reconnect on its own.</p>
+    <button type="button" id="retry">Try again</button>
+    <div class="hint" id="hint" aria-live="polite"></div>
+</main>
+<script>
+    (function () {
+        var btn = document.getElementById('retry'), hint = document.getElementById('hint'), left = 15, timer;
+        function retry() {
+            btn.disabled = true; btn.textContent = 'Checking…';
+            window.location.reload();
+        }
+        function tick() {
+            if (false && !navigator.onLine) { hint.textContent = 'Waiting for your internet connection…'; return; }
+            left -= 1;
+            hint.textContent = 'Retrying automatically in ' + left + 's';
+            if (left <= 0) { clearInterval(timer); retry(); }
+        }
+        btn.addEventListener('click', retry);
+        window.addEventListener('online', retry);
+        timer = setInterval(tick, 1000);
+    })();
+</script>
+</body>
+</html>

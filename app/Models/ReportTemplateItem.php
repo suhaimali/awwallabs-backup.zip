@@ -8,6 +8,7 @@ class ReportTemplateItem extends Model
 {
     protected $fillable = [
         'report_template_id',
+        'item_type',
         'lab_test_id',
         'category',
         'subcategory',
@@ -15,6 +16,11 @@ class ReportTemplateItem extends Model
         'unit',
         'normal_value',
         'biological_reference',
+        'code',
+        'default_value',
+        'options',
+        'formula',
+        'decimals',
         'sort_order'
     ];
 

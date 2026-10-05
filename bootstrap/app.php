@@ -19,9 +19,28 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: '*');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->render(function (\Illuminate\Database\QueryException $e, \Illuminate\Http\Request $request) {
-            if ($e->getCode() == 2002 || str_contains($e->getMessage(), 'Connection refused') || str_contains($e->getMessage(), 'actively refused it')) {
-                return response()->view('errors.offline', [], 500);
+        // Database server unreachable: show a friendly "temporarily unavailable" page (or JSON for AJAX)
+        // instead of a stack trace. Browser-side "no internet" is handled by public/sw.js + offline.html.
+        $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if (!($e instanceof \Illuminate\Database\QueryException) && !($e instanceof \PDOException)) {
+                return null;
             }
+            $message = $e->getMessage();
+            $connectionLost = in_array((int) ($e->errorInfo[1] ?? $e->getCode()), [2002, 2003, 2006, 2013], true)
+                || str_contains($message, 'Connection refused')
+                || str_contains($message, 'actively refused it')
+                || str_contains($message, 'server has gone away')
+                || str_contains($message, 'No such file or directory');
+            if (!$connectionLost) {
+                return null;
+            }
+
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'message' => 'The lab server is temporarily unavailable. Please try again in a moment.',
+                ], 503, ['Retry-After' => '15']);
+            }
+
+            return response()->view('errors.offline', [], 503, ['Retry-After' => '15']);
         });
     })->create();

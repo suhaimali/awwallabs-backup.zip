@@ -30,6 +30,11 @@ class SecurityHeaders
         // Prevent XSS in older browsers
         $response->headers->set('X-XSS-Protection', '1; mode=block');
 
+        // Keep browsers on HTTPS once they have seen the site over HTTPS
+        if ($request->isSecure()) {
+            $response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+        }
+
         return $response;
     }
 }

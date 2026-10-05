@@ -12,10 +12,9 @@
     {{-- ══ LEFT — Branding Panel ══════════════════════════════ --}}
     <div class="auth-left">
         <div class="auth-left-inner">
-            <div class="auth-logo-icon">
-                <i class="fa-solid fa-flask"></i>
+            <div class="auth-logo-card">
+                <img src="{{ asset('images/brand/logo.png') }}" alt="Suhaimsoft Lab — Health, Innovation, Technology">
             </div>
-            <h1>SUHAIM SOFT LAB</h1>
             <p class="auth-tagline">Advanced Laboratory Management System — built for speed, precision, and reliability.</p>
 
             <div class="auth-features">
@@ -46,6 +45,7 @@
         </a>
 
         <div class="auth-right-inner">
+            <img class="auth-mobile-logo" src="{{ asset('images/brand/logo.png') }}" alt="Suhaimsoft Lab">
             <div class="form-heading">
                 <h2>Welcome back</h2>
                 <p>Sign in to your account to continue</p>
@@ -139,7 +139,7 @@
             <div class="footer-text">
                 &copy; {{ date('Y') }} SUHAIM SOFT. All rights reserved.
                 <div class="security-note">
-                    <i class="fa-solid fa-shield-halved"></i> Protected &bull; Max {{ env('LOGIN_MAX_ATTEMPTS', 5) }} attempts
+                    <i class="fa-solid fa-shield-halved"></i> Protected &bull; Max 5 attempts
                 </div>
             </div>
         </div>

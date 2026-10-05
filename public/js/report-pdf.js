@@ -30,15 +30,17 @@ $(document).ready(function () {
             const pdfBlob = doc.output('blob');
             renderPDF(URL.createObjectURL(pdfBlob));
         }).fail(function (xhr) {
-            $('#pdf-canvas-container').html(`<div class="alert alert-danger m-20">Could not reload report preview. ${xhr.responseJSON?.message || 'Please try again.'}</div>`);
+            $('#pdf-canvas-container').html(`<div class="alert alert-danger m-20">Could not reload report preview. ${escHtml(xhr.responseJSON?.message || 'Please try again.')}</div>`);
         });
     });
     // ──────────────────────────────────────────────────────
 
     $(document).on('click', '.btn-view', function (e) {
         e.preventDefault();
-        let id = $(this).data('id');
+        openReportViewer($(this).data('id'));
+    });
 
+    function openReportViewer(id) {
         // Open modal
         $('#modal-view-report').modal('show');
 
@@ -83,9 +85,11 @@ $(document).ready(function () {
                 }
             });
         }).fail(function (xhr) {
-            $('#pdf-canvas-container').html(`<div class="alert alert-danger m-20">Could not load report preview. ${xhr.responseJSON?.message || 'Please try again.'}</div>`);
+            $('#pdf-canvas-container').html(`<div class="alert alert-danger m-20">Could not load report preview. ${escHtml(xhr.responseJSON?.message || 'Please try again.')}</div>`);
         });
-    });
+    }
+    window.openReportViewer = openReportViewer;
+
 
     async function renderPDF(url) {
         try {
@@ -611,7 +615,8 @@ $(document).ready(function () {
 
         const noteBoxW = 170; // Increased from 100 to allow wider notes
         const noteBoxH = Math.max(20, reportNotes ? (doc.splitTextToSize(reportNotes, noteBoxW - 8).length * 5 + 10) : 20);
-        if (y + noteBoxH > footerTop - 15) {
+        // Keep the notes clear of the QR code / signature block at the bottom of the page.
+        if (y + 2 + noteBoxH > footerTop - 38) {
             y = addNewPage();
         }
 
@@ -656,9 +661,24 @@ $(document).ready(function () {
         doc.setTextColor(100, 116, 139);
         doc.text(signature?.name ? 'Authorized Signatory' : 'Lab In-Charge', left + 138, footerTop - 4, { align: 'center' });
 
+        // QR code: scanning it opens this report on the lab's website.
+        if (data.public_url && drawQrCode(doc, data.public_url, left, footerTop - 36, 25)) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            doc.setTextColor(100, 116, 139);
+            doc.text('Scan to verify this report', left + 12.5, footerTop - 8, { align: 'center' });
+            doc.text(`Report #${data.id}`, left + 12.5, footerTop - 4.5, { align: 'center' });
+        }
+
         if (pageNo > 1) {
-            doc.setFontSize(8.5);
-            doc.text(`Page No : ${pageNo}`, left + 4, 38);
+            for (let i = 1; i <= pageNo; i++) {
+                doc.setPage(i);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8.5);
+                doc.setTextColor(100, 116, 139);
+                doc.text(`Page ${i} of ${pageNo}`, left + tableW, 36, { align: 'right' });
+            }
+            doc.setPage(pageNo);
         }
 
         return doc;

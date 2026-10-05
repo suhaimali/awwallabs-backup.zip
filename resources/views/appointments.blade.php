@@ -723,7 +723,7 @@
                   data.forEach(function(test) {
                       let unit = test.parameter ? test.parameter.unit : '';
                       let bioRef = test.parameter ? test.parameter.biological_reference : '';
-                      options += `<option value="${test.name}" data-id="${test.id}" data-price="${test.price}" data-unit="${unit}" data-bio-ref="${bioRef}">${test.name}</option>`;
+                      options += `<option value="${escHtml(test.name)}" data-id="${escHtml(test.id)}" data-price="${escHtml(test.price)}" data-unit="${escHtml(unit)}" data-bio-ref="${escHtml(bioRef)}">${escHtml(test.name)}</option>`;
                   });
                   $('.book-test-select').each(function() {
                       let currentVal = $(this).val();
@@ -846,7 +846,7 @@
 					  let phone = doctor.phone ? doctor.phone : '';
 					  let email = doctor.email ? doctor.email : '';
 					  let qual = doctor.qualification ? doctor.qualification : '';
-					  options += '<option value="' + doctor.name + '" data-id="'+doctor.id+'" data-phone="'+phone+'" data-email="'+email+'" data-qualification="'+qual+'">' + doctor.name + '</option>';
+					  options += '<option value="' + escHtml(doctor.name) + '" data-id="'+doctor.id+'" data-phone="'+escHtml(phone)+'" data-email="'+escHtml(email)+'" data-qualification="'+escHtml(qual)+'">' + escHtml(doctor.name) + '</option>';
 				  });
 				  $('.reference-dr-select').html(options);
 				  if (selectedValue) {

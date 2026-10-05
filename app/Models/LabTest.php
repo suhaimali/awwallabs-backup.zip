@@ -10,9 +10,8 @@ class LabTest extends Model
         'name',
         'price',
         'description',
-        'category_id',
-        'sub_category_id',
         'payment_method',
+        'report_template_id',
     ];
 
     public function category()
@@ -33,5 +32,11 @@ class LabTest extends Model
     public function referenceIntervals()
     {
         return $this->hasMany(ReferenceInterval::class);
+    }
+
+    /** Panel this billing test expands into at result entry. */
+    public function panel()
+    {
+        return $this->belongsTo(ReportTemplate::class, 'report_template_id');
     }
 }

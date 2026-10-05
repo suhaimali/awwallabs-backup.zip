@@ -2,9 +2,7 @@
     <!-- Brand -->
     <div class="sidebar-brand d-flex justify-content-between align-items-center w-100">
         <div class="d-flex align-items-center gap-2">
-            <div class="brand-icon">
-                <i class="fa fa-flask"></i>
-            </div>
+            <img class="brand-logo" src="{{ asset('images/brand/mark-64.png') }}" alt="Suhaimsoft Lab" width="36" height="36">
             <span class="brand-name">AWWAL LAB</span>
         </div>
         <button class="btn btn-sm btn-light d-lg-none" onclick="closeSidebar()" style="padding: 2px 8px; border-radius: 6px;">
@@ -21,6 +19,13 @@
            data-tooltip="Dashboard">
             <span class="nav-icon"><i class="fa fa-th-large"></i></span>
             <span class="nav-label">Dashboard</span>
+        </a>
+
+        <a href="{{ route('visits.create') }}"
+           class="nav-item-link {{ request()->routeIs('visits*') ? 'active' : '' }}"
+           data-tooltip="New Visit">
+            <span class="nav-icon"><i class="fa fa-route"></i></span>
+            <span class="nav-label">New Visit</span>
         </a>
 
         <a href="{{ route('patients') }}"

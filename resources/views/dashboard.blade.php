@@ -13,8 +13,8 @@
     </div>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
 
-        <a href="{{ route('patients') }}" class="btn-aw-primary">
-            <i class="fa fa-user-plus"></i> Add Patient
+        <a href="{{ route('visits.create') }}" class="btn-aw-primary">
+            <i class="fa fa-route"></i> New Visit
         </a>
         <a href="{{ route('reports') }}" class="btn-aw-outline">
             <i class="fa fa-file-medical"></i> View Reports
@@ -64,9 +64,43 @@
             </div>
             <div class="stat-text">
                 <div class="stat-num" id="stat-pending">{{ $pendingReports }}</div>
-                <div class="stat-lbl">Pending Reports</div>
+                <div class="stat-lbl">Awaiting Results</div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- Results work queue: the hand-off from registration to report -->
+<div class="aw-card mb-4">
+    <div class="aw-card-header">
+        <div class="aw-card-title"><i class="fa fa-vial-circle-check" style="color:#ea580c;"></i> Waiting for Results</div>
+        <span style="font-size:12px;color:var(--text-muted);">Oldest first</span>
+    </div>
+    <div class="aw-card-body" style="padding:0;">
+        @if($worklist->isEmpty())
+            <div style="padding:22px;text-align:center;color:var(--text-muted);font-size:13px;">
+                <i class="fa fa-circle-check" style="color:#059669;"></i> All booked tests have results.
+                <a href="{{ route('visits.create') }}" class="ms-1">Start a new visit</a>
+            </div>
+        @else
+            <div class="table-responsive-modern">
+                <table class="table-modern">
+                    <thead><tr><th>Patient</th><th>Tests pending</th><th>Waiting since</th><th class="text-end">Action</th></tr></thead>
+                    <tbody>
+                        @foreach($worklist as $wp)
+                            <tr>
+                                <td data-label="Patient"><div style="font-weight:600;">{{ $wp->first_name }} {{ $wp->last_name }}</div><div style="font-size:12px;color:var(--text-muted);">{{ $wp->patient_id }}</div></td>
+                                <td data-label="Tests pending"><span class="badge-aw badge-orange">{{ $wp->pending_tests_count }}</span></td>
+                                <td data-label="Waiting since">{{ \Carbon\Carbon::parse($wp->waiting_since)->diffForHumans() }}</td>
+                                <td class="text-end" data-label="Action">
+                                    <a href="{{ route('reports', ['create_for' => $wp->id]) }}" class="btn-aw-primary btn-aw-sm"><i class="fa fa-pen-to-square"></i> Enter results</a>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
     </div>
 </div>
 
@@ -92,7 +126,7 @@
                 <h2 class="wb-title">
                     <span id="dashboard-dynamic-greeting">{{ $greeting }}</span>, {{ auth()->user()->name ?? 'Administrator' }}
                 </h2>
-                <p class="wb-text">Your diagnostic center dashboard is active. Today, you have registered <strong>{{ $totalPatients }} patients</strong> and finalized <strong>{{ $totalCompleted }} test reports</strong>. There are currently <strong>{{ $pendingReports }} pending reports</strong> awaiting action.</p>
+                <p class="wb-text">Your diagnostic center dashboard is active. Today, you have registered <strong>{{ $totalPatients }} patients</strong> and finalized <strong>{{ $totalCompleted }} test reports</strong>. <strong>{{ $pendingReports }} patient(s)</strong> are waiting for results.</p>
                 <script>
                     (function() {
                         const hour = new Date().getHours();
@@ -109,8 +143,8 @@
                     })();
                 </script>
                 <div class="wb-actions">
-                    <a href="{{ route('patients') }}" class="wb-btn">
-                        <i class="fa fa-users"></i> Manage Patients
+                    <a href="{{ route('visits.create') }}" class="wb-btn">
+                        <i class="fa fa-route"></i> Start New Visit
                     </a>
                     <a href="{{ route('reports') }}" class="wb-btn-outline">
                         <i class="fa fa-file-medical"></i> View Reports
@@ -175,13 +209,13 @@
 <!-- Navigation Tiles (All Modules A-Z) -->
 <div class="aw-card mb-4">
     <div class="aw-card-header">
-        <div class="aw-card-title"><i class="fa fa-grid-2" style="color:var(--primary);"></i> All Modules</div>
+        <div class="aw-card-title"><i class="fa fa-table-cells-large" style="color:var(--primary);"></i> All Modules</div>
     </div>
     <div class="aw-card-body">
         <div class="row g-3">
             @php
             $modules = [
-                ['icon'=>'fa-th-large',       'color'=>'#1a56db', 'bg'=>'#e8f0fe', 'label'=>'Dashboard',         'sub'=>'Overview & stats',       'route'=>route('dashboard')],
+                ['icon'=>'fa-route',           'color'=>'#1a56db', 'bg'=>'#e8f0fe', 'label'=>'New Visit',         'sub'=>'Register to report',      'route'=>route('visits.create')],
                 ['icon'=>'fa-users',           'color'=>'#059669', 'bg'=>'#d1fae5', 'label'=>'Patients',           'sub'=>'Patient records',         'route'=>route('patients')],
                 ['icon'=>'fa-calendar-plus',   'color'=>'#6366f1', 'bg'=>'#e0e7ff', 'label'=>'Book Appointment',  'sub'=>'Schedule visits',         'route'=>route('appointments')],
                 ['icon'=>'fa-flask',           'color'=>'#0891b2', 'bg'=>'#cffafe', 'label'=>'Lab Tests',          'sub'=>'Tests & billing',         'route'=>route('lab-tests.index')],
