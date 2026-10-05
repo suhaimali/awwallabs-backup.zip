@@ -194,9 +194,9 @@
                     </div>
                     <div class="col-md-4">
                         <select class="form-select" id="package-select" aria-label="Add a package">
-                            <option value="">+ Add a package…</option>
+                            <option value="">+ Add a package / profile…</option>
                             @foreach($packages as $pkg)
-                                <option value="{{ $pkg->id }}">{{ $pkg->name }} ({{ $pkg->items->count() }})</option>
+                                <option value="{{ $pkg->id }}" data-name="{{ $pkg->name }}" data-price="{{ (float) $pkg->price }}">{{ $pkg->name }} · {{ $panelSizes[$pkg->report_template_id] ?? 0 }} parameters · ₹{{ number_format($pkg->price, 0) }}</option>
                             @endforeach
                         </select>
                     </div>
@@ -302,9 +302,7 @@
 <script>
 (function () {
     const CATALOG = @json($tests->map(fn ($t) => ['n' => $t->name, 'p' => (float) $t->price])->values());
-    const PACKAGES = @json($packages->mapWithKeys(fn ($p) => [$p->id => $p->items->pluck('name')->values()]));
     const PRESELECTED = @json($preselected);
-    const priceByName = new Map(CATALOG.map(t => [t.n.toLowerCase(), t.p]));
 
     const state = { step: 1, mode: 'existing', patient: null, tests: [] };
     const money = v => (Math.round((parseFloat(v) || 0) * 100) / 100).toFixed(2);
@@ -349,6 +347,8 @@
             if (!state.tests.length) return fail('Add at least one test.', $('#test-search'));
             const bad = state.tests.findIndex(t => t.discount > t.price);
             if (bad >= 0) return fail(`Discount on "${state.tests[bad].name}" is more than its price.`);
+            const t = totals();
+            if (t.paid > t.net + 0.001) return fail(`Amount received (₹${money(t.paid)}) is more than the bill (₹${money(t.net)}).`, $('#v-paid'));
             return true;
         }
         if (step === 3) {
@@ -469,8 +469,8 @@
     });
 
     $('#package-select').on('change', function () {
-        const names = PACKAGES[$(this).val()] || [];
-        names.forEach(n => addTest(n, priceByName.get(n.toLowerCase()) ?? 0));
+        const opt = $(this).find(':selected');
+        if (opt.val()) addTest(opt.data('name'), opt.data('price'));
         $(this).val('');
     });
 

@@ -319,7 +319,7 @@
 				  }
 			  }
 		  });
-		  $('#param-search').on('keyup', function() {
+		  $('#param-search').on('input', function() {
 			  parametersTable.search($(this).val()).draw();
 		  });
 
@@ -342,6 +342,11 @@
               // Load Intervals dynamically
               let testId = $(this).data('id');
               $('#interval-test-id').val(testId);
+              loadIntervals(testId);
+		  });
+
+
+          function loadIntervals(testId) {
               let tbody = $('#advanced-intervals-table tbody');
               tbody.html('<tr><td colspan="5" class="text-center text-muted py-4"><i class="fa fa-spinner fa-spin me-2"></i>Loading intervals...</td></tr>');
               
@@ -370,7 +375,7 @@
               }).fail(function() {
                   tbody.html('<tr><td colspan="5" class="text-center text-danger py-4"><i class="fa fa-triangle-exclamation me-2"></i>Failed to load intervals.</td></tr>');
               });
-		  });
+          }
 
           // Edit Interval Row Clicked
           $(document).on('click', '.btn-edit-interval', function() {
@@ -438,8 +443,15 @@
               btn.prop('disabled', true).html(isEdit ? '<i class="fa fa-spinner fa-spin me-1"></i> Updating...' : '<i class="fa fa-spinner fa-spin me-1"></i> Saving...');
               let testId = $('#interval-test-id').val();
               $.post("/test-parameters/" + testId + "/intervals", $(this).serialize(), function(res) {
-                  location.reload();
-              }).fail(function() {
+                  // Stay in the dialog: refresh the list instead of reloading the whole page.
+                  showToast(isEdit ? 'Interval updated' : 'Interval added', 'success');
+                  resetIntervalForm();
+                  btn.prop('disabled', false);
+                  loadIntervals(testId);
+              }).fail(function(xhr) {
+                  btn.prop('disabled', false);
+                  if (xhr.responseJSON && xhr.responseJSON.errors) { showToast(Object.values(xhr.responseJSON.errors).map(e => e[0]).join(' '), 'error'); }
+                  else
                   showToast(isEdit ? 'Error updating interval.' : 'Error saving interval.', 'error');
                   btn.prop('disabled', false).html(isEdit ? '<i class="fa fa-check me-1"></i> Update Interval' : '<i class="fa fa-plus me-1"></i> Add Interval');
               });
@@ -457,7 +469,7 @@
                       type: 'DELETE',
                       success: function() {
                           showToast('Reference interval removed successfully', 'success');
-                          setTimeout(() => location.reload(), 600);
+                          loadIntervals($('#interval-test-id').val());
                       },
                       error: function() {
                           showToast('Error deleting interval.', 'error');

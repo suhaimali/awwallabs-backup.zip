@@ -726,30 +726,46 @@ $(document).ready(function () {
         });
     }
 
+    // After adding/renaming an entry, show it (lists are long and alphabetical).
+    function rememberAndReload(searchInputId, value, message) {
+        try { sessionStorage.setItem('md-focus', JSON.stringify({ input: searchInputId, value: value, message: message })); } catch (e) {}
+        location.reload();
+    }
+
     initDataTable('units-table', 'unit-search');
     initDataTable('templates-table', 'template-search');
     initDataTable('references-table', 'reference-search');
     initDataTable('flags-table', 'flag-search');
 
+    try {
+        const focus = JSON.parse(sessionStorage.getItem('md-focus') || 'null');
+        sessionStorage.removeItem('md-focus');
+        if (focus) {
+            $('#' + focus.input).removeAttr('readonly').val(focus.value).trigger('input');
+            document.getElementById(focus.input)?.closest('.aw-card, .card, section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (focus.message) showToast(focus.message, 'success');
+        }
+    } catch (e) {}
+
     /* ── ADD handlers ─────────────────────────────────────── */
     $('#form-add-unit').submit(function (e) {
         e.preventDefault();
-        $.post("{{ route('units.store') }}", $(this).serialize(), function () { location.reload(); })
+        $.post("{{ route('units.store') }}", $(this).serialize(), function () { rememberAndReload('unit-search', $('#form-add-unit [name=name]').val().trim(), 'Unit added'); })
          .fail(function(xhr) { showToast(xhr.responseJSON?.message || 'Failed to add unit.', 'error'); });
     });
     $('#form-add-template').submit(function (e) {
         e.preventDefault();
-        $.post("{{ route('result-templates.store') }}", $(this).serialize(), function () { location.reload(); })
+        $.post("{{ route('result-templates.store') }}", $(this).serialize(), function () { rememberAndReload('template-search', $('#form-add-template [name=name]').val().trim(), 'Result template added'); })
          .fail(function(xhr) { showToast(xhr.responseJSON?.message || 'Failed to add template.', 'error'); });
     });
     $('#form-add-reference').submit(function (e) {
         e.preventDefault();
-        $.post("{{ route('reference-templates.store') }}", $(this).serialize(), function () { location.reload(); })
+        $.post("{{ route('reference-templates.store') }}", $(this).serialize(), function () { rememberAndReload('reference-search', $('#form-add-reference [name=name]').val().trim(), 'Reference range added'); })
          .fail(function(xhr) { showToast(xhr.responseJSON?.message || 'Failed to add reference template.', 'error'); });
     });
     $('#form-add-flag').submit(function (e) {
         e.preventDefault();
-        $.post("{{ route('flag-templates.store') }}", $(this).serialize(), function () { location.reload(); })
+        $.post("{{ route('flag-templates.store') }}", $(this).serialize(), function () { rememberAndReload('flag-search', $('#form-add-flag [name=name]').val().trim(), 'Flag added'); })
          .fail(function(xhr) { showToast(xhr.responseJSON?.message || 'Failed to add flag template.', 'error'); });
     });
 
@@ -843,25 +859,25 @@ $(document).ready(function () {
         $('#edit-id').val($(this).data('id'));
         $('#edit-name').val($(this).data('name'));
         $('#edit-type').val('unit');
-        $('.modal-title').html('<i class="fa fa-pen text-primary me-2"></i>Edit Laboratory Unit');
+        $('#modal-edit-master .modal-title').html('<i class="fa fa-pen text-primary me-2"></i>Edit Laboratory Unit');
     });
     $(document).on('click', '.btn-edit-template', function () {
         $('#edit-id').val($(this).data('id'));
         $('#edit-name').val($(this).data('name'));
         $('#edit-type').val('template');
-        $('.modal-title').html('<i class="fa fa-pen text-success me-2"></i>Edit Result Template');
+        $('#modal-edit-master .modal-title').html('<i class="fa fa-pen text-success me-2"></i>Edit Result Template');
     });
     $(document).on('click', '.btn-edit-reference', function () {
         $('#edit-id').val($(this).data('id'));
         $('#edit-name').val($(this).data('name'));
         $('#edit-type').val('reference-template');
-        $('.modal-title').html('<i class="fa fa-pen text-info me-2"></i>Edit Reference Template');
+        $('#modal-edit-master .modal-title').html('<i class="fa fa-pen text-info me-2"></i>Edit Reference Template');
     });
     $(document).on('click', '.btn-edit-flag', function () {
         $('#edit-id').val($(this).data('id'));
         $('#edit-name').val($(this).data('name'));
         $('#edit-type').val('flag-template');
-        $('.modal-title').html('<i class="fa fa-pen text-warning me-2"></i>Edit Flag Template');
+        $('#modal-edit-master .modal-title').html('<i class="fa fa-pen text-warning me-2"></i>Edit Flag Template');
     });
 
     /* ── UPDATE ───────────────────────────────────────────── */
@@ -878,8 +894,11 @@ $(document).ready(function () {
             url:     urls[type],
             type:    'PUT',
             data:    $('#form-edit-master').serialize(),
-            success: function ()  { location.reload(); },
-            error:   function ()  { showToast('Error updating entry. Possibly a duplicate name.', 'error'); }
+            success: function ()  {
+                var search = { 'unit': 'unit-search', 'template': 'template-search', 'reference-template': 'reference-search', 'flag-template': 'flag-search' }[type];
+                rememberAndReload(search, $('#form-edit-master [name=name]').val().trim(), 'Saved');
+            },
+            error:   function (xhr) { showToast(xhr.responseJSON?.message || 'Error updating entry. Possibly a duplicate name.', 'error'); }
         });
     });
 

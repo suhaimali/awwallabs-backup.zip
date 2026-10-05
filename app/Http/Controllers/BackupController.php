@@ -79,8 +79,22 @@ class BackupController extends Controller
     /**
      * Restore the specified backup.
      */
-    public function restore($file)
+    /** Snapshot the current data before anything overwrites it. */
+    private function safetyBackup(): void
     {
+        $disk = Storage::disk('local');
+        if (!$disk->exists('backups')) {
+            $disk->makeDirectory('backups');
+        }
+        \App\Services\DatabaseDumper::dump($disk->path('backups/pre-restore-' . date('Y-m-d-H-i-s') . '.sql'));
+    }
+
+    public function restore(Request $request, $file)
+    {
+        if ($request->input('confirm') !== 'RESTORE') {
+            return response()->json(['success' => false, 'message' => 'Restore not confirmed.'], 422);
+        }
+
         try {
             $path = 'backups/' . basename($file);
             $disk = Storage::disk('local');
@@ -90,9 +104,10 @@ class BackupController extends Controller
             }
 
             $fullPath = $disk->path($path);
+            $this->safetyBackup();
             \App\Services\DatabaseDumper::restore($fullPath);
 
-            return response()->json(['success' => true, 'message' => 'System restored successfully!']);
+            return response()->json(['success' => true, 'message' => 'System restored successfully! A safety backup of the previous data was saved.']);
         } catch (Exception $e) {
             $msg = $e->getMessage();
             if (strpos($msg, '(Connection:') !== false) {
@@ -130,9 +145,10 @@ class BackupController extends Controller
             $path = $file->storeAs('backups', $filename, 'local');
             
             $fullPath = $disk->path($path);
+            $this->safetyBackup();
             \App\Services\DatabaseDumper::restore($fullPath);
-            
-            return response()->json(['success' => true, 'message' => 'System restored successfully from uploaded file!']);
+
+            return response()->json(['success' => true, 'message' => 'System restored successfully from uploaded file! A safety backup of the previous data was saved.']);
         } catch (Exception $e) {
             $msg = $e->getMessage();
             if (strpos($msg, '(Connection:') !== false) {

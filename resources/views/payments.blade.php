@@ -227,7 +227,7 @@
         paginate: { previous: "<i class='fa fa-angle-left'></i>", next: "<i class='fa fa-angle-right'></i>" }
       }
     });
-    $('#payment-search').on('keyup', function() { paymentsTable.search($(this).val()).draw(); });
+    $('#payment-search').on('input', function() { paymentsTable.search($(this).val()).draw(); });
     let statusFilter = '';
     $.fn.dataTable.ext.search.push((settings, data, idx) =>
       settings.nTable.id !== 'payments-table' || !statusFilter || paymentsTable.row(idx).node().dataset.status === statusFilter);

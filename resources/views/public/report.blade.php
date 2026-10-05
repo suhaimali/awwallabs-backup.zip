@@ -40,10 +40,20 @@
                     <tr><th>Test</th><th>Result</th><th>Unit</th><th>Reference range</th></tr>
                 </thead>
                 <tbody>
+                    @php $panelNotes = $report->panel_notes ?? []; @endphp
                     @foreach($grouped as $category => $items)
                         <tr class="cat"><td colspan="4">{{ $category }}</td></tr>
-                        @php $lastSub = null; @endphp
+                        @php $lastSub = null; $currentPanel = null; @endphp
                         @foreach($items as $item)
+                            @if(($item->panel_name ?: null) !== $currentPanel)
+                                @if($currentPanel && !empty($panelNotes[$currentPanel]))
+                                    <tr class="pnote"><td colspan="4">{{ $panelNotes[$currentPanel] }}</td></tr>
+                                @endif
+                                @php $currentPanel = $item->panel_name ?: null; $lastSub = null; @endphp
+                                @if($currentPanel && strtoupper($currentPanel) !== $category)
+                                    <tr class="ptitle"><td colspan="4">{{ $currentPanel }}</td></tr>
+                                @endif
+                            @endif
                             @if($item->subcategory && $item->subcategory !== $lastSub)
                                 <tr class="sub"><td colspan="4">{{ $item->subcategory }}</td></tr>
                                 @php $lastSub = $item->subcategory; @endphp
@@ -69,6 +79,9 @@
                                 <td class="t-ref ref">{{ $ref }}</td>
                             </tr>
                         @endforeach
+                        @if($currentPanel && !empty($panelNotes[$currentPanel]))
+                            <tr class="pnote"><td colspan="4">{{ $panelNotes[$currentPanel] }}</td></tr>
+                        @endif
                     @endforeach
                 </tbody>
             </table>

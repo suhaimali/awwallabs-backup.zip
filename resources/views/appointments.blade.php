@@ -955,7 +955,7 @@
 				  }
 			  }
 		  });
-		  $("#booking-search").on("keyup", function() {
+		  $("#booking-search").on("input", function() {
 			  bookingTable.search($(this).val()).draw();
 		  });
 

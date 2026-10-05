@@ -88,9 +88,9 @@
 
         <a href="{{ route('templates.index') }}"
            class="nav-item-link {{ request()->routeIs('templates*') ? 'active' : '' }}"
-           data-tooltip="Report Templates">
-            <span class="nav-icon"><i class="fa fa-copy"></i></span>
-            <span class="nav-label">Report Templates</span>
+           data-tooltip="Test Panels">
+            <span class="nav-icon"><i class="fa fa-layer-group"></i></span>
+            <span class="nav-label">Test Panels</span>
         </a>
 
         <div class="sidebar-section-label" style="margin-top:8px;">Reports</div>

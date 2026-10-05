@@ -19,11 +19,11 @@
         <form action="{{ route('income-report') }}" method="GET" class="row align-items-end g-3">
             <div class="col-12 col-md-4">
                 <label for="field_1022" class="form-label-aw">Start Date</label>
-                <input type="date" class="form-control-aw" name="start_date" value="{{ request('start_date', date('Y-m-d')) }}" autocomplete="off" id="field_1022">
+                <input type="date" class="form-control-aw" name="start_date" value="{{ $startDate ?? request('start_date', date('Y-m-d')) }}" autocomplete="off" id="field_1022">
             </div>
             <div class="col-12 col-md-4">
                 <label for="field_1023" class="form-label-aw">End Date</label>
-                <input type="date" class="form-control-aw" name="end_date" value="{{ request('end_date', date('Y-m-d')) }}" autocomplete="off" id="field_1023">
+                <input type="date" class="form-control-aw" name="end_date" value="{{ $endDate ?? request('end_date', date('Y-m-d')) }}" autocomplete="off" id="field_1023">
             </div>
             <div class="col-12 col-md-4">
                 <div style="display:flex; gap:10px;">

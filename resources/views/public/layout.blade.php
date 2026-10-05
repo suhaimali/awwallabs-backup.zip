@@ -36,6 +36,8 @@
         td { padding: 9px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
         tr.cat td { background: #f8fafc; font-weight: 700; color: var(--accent); font-size: 12px; letter-spacing: .4px; }
         tr.sub td { font-weight: 700; font-style: italic; }
+        tr.ptitle td { font-weight: 800; text-transform: uppercase; font-size: 12.5px; padding-top: 12px; }
+        tr.pnote td { font-style: italic; color: var(--muted); font-size: 12.5px; white-space: pre-line; background: #fafafa; }
         .flag { display: inline-block; min-width: 24px; text-align: center; font-weight: 800; border-radius: 6px; padding: 1px 6px; }
         .flag-hi, .flag-c { background: var(--bad-bg); color: var(--bad); }
         .flag-lo { background: var(--warn-bg); color: var(--warn); }
@@ -64,8 +66,8 @@
             table.stack thead { display: none; }
             table.stack tr { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 4px; border-bottom: 1px solid #f1f5f9; }
             table.stack td { border: 0; padding: 0; }
-            table.stack tr.cat, table.stack tr.sub { display: block; padding: 0; }
-            table.stack tr.cat td, table.stack tr.sub td { display: block; padding: 8px 6px; }
+            table.stack tr.cat, table.stack tr.sub, table.stack tr.ptitle, table.stack tr.pnote { display: block; padding: 0; }
+            table.stack tr.cat td, table.stack tr.sub td, table.stack tr.ptitle td, table.stack tr.pnote td { display: block; padding: 8px 6px; }
             table.stack td.t-name { grid-column: 1; font-weight: 600; }
             table.stack td.t-val { grid-column: 2; text-align: right; }
             table.stack td.t-ref { grid-column: 1 / -1; }

@@ -1138,7 +1138,7 @@
                           
                           reportsTable.page(dtState.page).draw('page');
 
-                          $("#report-search").off("keyup").on("keyup", function() {
+                          $("#report-search").off("keyup").on("input", function() {
                               reportsTable.search($(this).val()).draw();
                           });
                       }
@@ -1150,9 +1150,11 @@
                       }
                       
                       // 3. Dynamically update ALL dropdown <select> contents without destroying bindings
+                      // Only lists rendered by the server. The doctor list is filled by JavaScript, so
+                      // copying it from the fetched HTML would wipe it (it is empty there).
                       const selectNamesToUpdate = [
-                          'patient_id', 'doctor_name', 'report_signature_id', 'category_id', 'unit',
-                          'test_category[]', 'test_subcategory[]', 'test_name[]', 'observed_value[]', 
+                          'patient_id', 'report_signature_id', 'category_id', 'unit',
+                          'test_category[]', 'test_subcategory[]', 'test_name[]',
                           'test_unit[]', 'normal_value[]', 'test_flag[]', 'biological_reference[]'
                       ];
                       
@@ -1207,7 +1209,7 @@
 				  }
 			  }
 		  });
-		  $("#report-search").on("keyup", function() {
+		  $("#report-search").on("input", function() {
 			  reportsTable.search($(this).val()).draw();
 		  });
 
@@ -1230,6 +1232,9 @@
           const trTemplate = `
             <div class="test-item-row card border-0 mb-3" style="position: relative; overflow: hidden;">
                 <div class="card-body">
+                    <input type="hidden" name="lab_test_id[]" class="row-lab-test-id" value="">
+                    <input type="hidden" name="panel_name[]" class="row-panel-name" value="">
+                    <input type="hidden" name="report_template_id[]" class="row-template-id" value="">
                     <span class="badge position-absolute row-sl-no" style="background:#0284c7;">SL 1</span>
                     <button type="button" class="btn btn-sm position-absolute remove-row" style="z-index:10;" title="Delete Test"><i class="fa fa-trash"></i></button>
                     <div class="row g-3 align-items-end mt-3">
@@ -1370,6 +1375,13 @@
           // Auto-fill Normal Value from Select & Handle Auto-calc Logic
           $(document).on('change', '.test-selector-dynamic', function() {
               let selected = $(this).find(':selected');
+              let ownRow = $(this).closest('.test-item-row');
+              if (!ownRow.data('from-builder')) {
+                  ownRow.find('.row-lab-test-id').val(selected.attr('data-id') || '');
+                  ownRow.find('.row-panel-name, .row-template-id').val('');
+                  ownRow.removeData('limits');
+              }
+              ownRow.removeData('from-builder');
 	              let row = $(this).closest('.test-item-row');
 	              let modal = $(this).closest('.modal');
 	              let gender = modal.find('select[name="patient_id"] :selected').attr('data-gender') || 'M/F';
@@ -1421,12 +1433,19 @@
                   return;
               }
 
-	              let isImmuno = selected.attr('data-is-immunoassay') == 1;
-	              let criticalLow = parseFloat(selected.attr('data-critical-low'));
-	              let criticalHigh = parseFloat(selected.attr('data-critical-high'));
-	              let ageInterval = getMatchingReferenceInterval(selected, gender, age);
-	              let min = ageInterval ? ageInterval.min_value : (gender === 'Male' ? selected.attr('data-male-min') : selected.attr('data-female-min'));
-	              let max = ageInterval ? ageInterval.max_value : (gender === 'Male' ? selected.attr('data-male-max') : selected.attr('data-female-max'));
+	              // Patient-specific limits supplied by the server win over the option's generic ones.
+	              let limits = row.data('limits');
+	              let isImmuno = limits ? !!limits.immunoassay : selected.attr('data-is-immunoassay') == 1;
+	              let criticalLow = parseFloat(limits ? limits.critical_low : selected.attr('data-critical-low'));
+	              let criticalHigh = parseFloat(limits ? limits.critical_high : selected.attr('data-critical-high'));
+	              let min, max;
+	              if (limits) {
+	                  min = parseFloat(limits.min); max = parseFloat(limits.max);
+	              } else {
+	                  let ageInterval = getMatchingReferenceInterval(selected, gender, age);
+	                  min = parseFloat(ageInterval ? ageInterval.min_value : (gender === 'Male' ? selected.attr('data-male-min') : selected.attr('data-female-min')));
+	                  max = parseFloat(ageInterval ? ageInterval.max_value : (gender === 'Male' ? selected.attr('data-male-max') : selected.attr('data-female-max')));
+	              }
 
 	              if (!isNaN(criticalLow) && val <= criticalLow) {
 	                  setSelectValueWithDefault(flagSelector, 'C');
@@ -1443,11 +1462,13 @@
                   if (val < 0.9) setSelectValueWithDefault(flagSelector, '-');
                   else if (val >= 0.9 && val <= 1.1) setSelectValueWithDefault(flagSelector, '+/-');
                   else if (val > 1.1) setSelectValueWithDefault(flagSelector, '+');
-              } else if (min !== undefined && max !== undefined) {
-                  // Standard Min-Max logic
-	                  if (val < min) setSelectValueWithDefault(flagSelector, '↓');
-	                  else if (val > max) setSelectValueWithDefault(flagSelector, '↑');
+              } else if (!isNaN(min) || !isNaN(max)) {
+	                  // Only judge against limits that exist (an empty limit is not 0).
+	                  if (!isNaN(min) && val < min) setSelectValueWithDefault(flagSelector, '↓');
+	                  else if (!isNaN(max) && val > max) setSelectValueWithDefault(flagSelector, '↑');
 	                  else setSelectValueWithDefault(flagSelector, '');
+	              } else {
+	                  setSelectValueWithDefault(flagSelector, '');
 	              }
 	          });
 
@@ -1544,7 +1565,10 @@
           // Re-trigger calculation when patient (gender) changes
           $(document).on('change', 'select[name="patient_id"]', function() {
               let modal = $(this).closest('.modal');
-              modal.find('.test-selector-dynamic').trigger('change');
+              modal.find('.test-item-row').each(function() {
+                  if (!$(this).data('limits')) $(this).find('.test-selector-dynamic').trigger('change');
+              });
+              refreshRanges(modal, false);
           });
 
           function updateSignaturePinRequirement(select) {
@@ -1637,6 +1661,107 @@
           
           initDynamicSelect2();
 
+
+          // ── Panel-aware rows (from the report builder) ─────────────────────
+          const BUILDER_URL = @json(route('report-builder.rows'));
+
+          function builderRequest(payload) {
+              return $.ajax({ url: BUILDER_URL, method: 'POST', contentType: 'application/json', dataType: 'json', data: JSON.stringify(payload) });
+          }
+
+          function rowLimits(r) {
+              return { min: r.min, max: r.max, critical_low: r.critical_low, critical_high: r.critical_high, immunoassay: r.immunoassay };
+          }
+
+          /** Append rows returned by /report-builder/rows (panel titles and sub-headings become row context). */
+          function addBuilderRows(container, rows) {
+              let heading = null;
+              rows.forEach(function(r) {
+                  if (r.kind === 'panel') { heading = null; return; }
+                  if (r.kind === 'heading') { heading = r.name; return; }
+                  const row = $(trTemplate);
+                  $(container).append(row);
+                  setSelectValueWithDefault(row.find('.report-category-select'), r.category || 'General');
+                  setSelectValueWithDefault(row.find('.report-subcategory-select'), r.heading || heading || '');
+                  const testSelect = row.find('.test-selector-dynamic');
+                  const exact = r.lab_test_id ? testSelect.find('option[data-id="' + r.lab_test_id + '"]') : $();
+                  if (exact.length) { testSelect.find('option').prop('selected', false); exact.first().prop('selected', true); }
+                  else setSelectValueWithDefault(testSelect, r.name);
+                  row.find('.row-lab-test-id').val(r.lab_test_id || '');
+                  row.find('.row-panel-name').val(r.panel || '');
+                  row.find('.row-template-id').val(r.panel_id || '');
+                  row.data('limits', rowLimits(r));
+                  row.data('calc', { code: r.code || null, formula: r.formula || null, decimals: r.decimals, panel: r.panel_id || null });
+                  setSelectValueWithDefault(row.find('.report-unit-select'), r.unit || '');
+                  setSelectValueWithDefault(row.find('.normal-val-dynamic'), r.reference || '');
+                  setSelectValueWithDefault(row.find('.bio-val-dynamic'), r.reference || '');
+                  if (r.default_value) row.find('.report-observed-select').val(r.default_value);
+                  if (r.formula) row.find('.report-observed-select').attr('placeholder', 'Calculated: ' + r.formula).addClass('is-calculated');
+              });
+              updateRowSlNo(container);
+          }
+
+          /** Tiny formula evaluator: numbers, {CODE}, + - * / and brackets (same grammar as the server). */
+          function evaluateFormula(formula, values) {
+              const tokens = formula.match(/\{[A-Za-z0-9_]+\}|\d*\.?\d+|[()+\-*/]/g) || [];
+              let pos = 0;
+              const peek = () => tokens[pos];
+              function factor() {
+                  const t = tokens[pos++];
+                  if (t === '-') { const v = factor(); return v === null ? null : -v; }
+                  if (t === '(') { const v = expr(); pos++; return v; }
+                  if (t && t[0] === '{') { const v = parseFloat(values[t.slice(1, -1).toUpperCase()]); return isNaN(v) ? null : v; }
+                  const n = parseFloat(t); return isNaN(n) ? null : n;
+              }
+              function term() { let v = factor(); while (peek() === '*' || peek() === '/') { const op = tokens[pos++]; const r = factor(); v = (v === null || r === null) ? null : (op === '*' ? v * r : (r === 0 ? null : v / r)); } return v; }
+              function expr() { let v = term(); while (peek() === '+' || peek() === '-') { const op = tokens[pos++]; const r = term(); v = (v === null || r === null) ? null : (op === '+' ? v + r : v - r); } return v; }
+              try { const v = expr(); return (v === null || !isFinite(v)) ? null : v; } catch (e) { return null; }
+          }
+
+          /** Recalculate formula rows of the same panel when an input value changes. */
+          function recalcPanel(container, panelId) {
+              const rows = $(container).find('.test-item-row').filter(function() { return ($(this).data('calc') || {}).panel === panelId; });
+              const values = {};
+              rows.each(function() { const c = $(this).data('calc'); if (c && c.code) values[c.code] = $(this).find('.report-observed-select').val(); });
+              rows.each(function() {
+                  const c = $(this).data('calc');
+                  if (!c || !c.formula) return;
+                  const input = $(this).find('.report-observed-select');
+                  if (input.data('manual')) return;
+                  const v = evaluateFormula(c.formula, values);
+                  const text = v === null ? '' : v.toFixed(c.decimals === null || c.decimals === undefined ? 1 : c.decimals);
+                  if (input.val() !== text) { input.val(text); if (c.code) values[c.code] = text; input.trigger('change'); }
+              });
+          }
+
+          $(document).on('input', '.test-item-row .report-observed-select', function() {
+              const row = $(this).closest('.test-item-row');
+              const calc = row.data('calc');
+              if (calc && calc.formula) $(this).data('manual', $(this).val() !== '');
+              if (calc && calc.panel) recalcPanel(row.parent(), calc.panel);
+          });
+
+          /** Patient changed: re-resolve patient-specific ranges for rows that came from the builder. */
+          function refreshRanges(modal, keepText) {
+              const rows = modal.find('.test-item-row').filter(function() { return !!$(this).find('.row-lab-test-id').val(); });
+              const patientId = modal.find('select[name="patient_id"]').val();
+              if (!rows.length || !patientId) return;
+              const resolve = rows.map(function() { return { lab_test_id: +$(this).find('.row-lab-test-id').val(), template_id: +$(this).find('.row-template-id').val() || null }; }).get();
+              builderRequest({ patient_id: +patientId, resolve: resolve }).done(function(res) {
+                  rows.each(function(i) {
+                      const r = res.meta[i];
+                      if (!r) return;
+                      $(this).data('limits', rowLimits(r));
+                      $(this).data('calc', $.extend({}, $(this).data('calc') || {}, { code: r.code, formula: r.formula, decimals: r.decimals, panel: +$(this).find('.row-template-id').val() || null }));
+                      if (!keepText && r.reference) {
+                          setSelectValueWithDefault($(this).find('.normal-val-dynamic'), r.reference);
+                          setSelectValueWithDefault($(this).find('.bio-val-dynamic'), r.reference);
+                      }
+                      $(this).find('.report-observed-select').trigger('change');
+                  });
+              });
+          }
+
           function updateRowSlNo(target) {
               $(target).find('.test-item-row').each(function(index) {
                   $(this).find('.row-sl-no').text('SL ' + (index + 1));
@@ -1651,66 +1776,41 @@
           });
 
           $(document).on('change', '.select-load-report-template', function() {
-              let templateId = $(this).val();
+              const templateId = $(this).val();
               if (!templateId) return;
+              const select = $(this);
+              const modal = select.closest('.modal');
+              const container = modal.attr('id') === 'modal-add-report' ? '#dynamic-tests-container' : '#edit-dynamic-tests-container';
+              const patientId = modal.find('select[name="patient_id"]').val();
+              select.prop('disabled', true);
 
-              let selectDropdown = $(this);
-              let modal = $(this).closest('.modal');
-              let container = modal.attr('id') === 'modal-add-report' ? '#dynamic-tests-container' : '#edit-dynamic-tests-container';
-
-              selectDropdown.prop('disabled', true);
-
-              $.get("/templates/" + templateId, function(template) {
-                  if (template.items && template.items.length > 0) {
+              builderRequest({ template_id: +templateId, patient_id: patientId ? +patientId : null })
+                  .done(function(res) {
+                      const rows = res.rows || [];
+                      if (!rows.some(r => r.kind === 'param')) { showToast('This template has no parameters.', 'warning'); return; }
+                      const name = (rows[0] && rows[0].panel) || 'template';
+                      const blankRows = $(container).find('.test-item-row').filter(function() { return !$(this).find('.test-selector-dynamic').val(); });
+                      const filled = $(container).find('.test-item-row').length - blankRows.length;
+                      const apply = function(replace) {
+                          if (replace) $(container).empty(); else blankRows.remove();
+                          addBuilderRows(container, rows);
+                          showToast(name + ' loaded', 'success');
+                      };
+                      if (!filled) { apply(true); return; }
                       Swal.fire({
-                          title: 'Load Template',
-                          html: `Clear existing test items before loading <strong>${template.name}</strong>?`,
+                          title: 'Load ' + escHtml(name) + '?',
+                          html: 'This report already has <b>' + filled + '</b> test(s).',
                           icon: 'question',
-                          showCancelButton: true,
-                          confirmButtonText: '<i class="fa fa-trash"></i> Clear & Load',
-                          cancelButtonText: 'Keep & Append',
-                          confirmButtonColor: '#0284c7',
-                          cancelButtonColor: '#6c757d',
-                      }).then((result) => {
-                          if (result.isConfirmed) {
-                              $(container).empty();
-                          }
-                          template.items.forEach(item => {
-                              let newRow = $(trTemplate);
-                              $(container).append(newRow);
-
-                              // Set Category & Subcategory
-                              setSelectValueWithDefault(newRow.find('.report-category-select'), item.category || 'General');
-                              setSelectValueWithDefault(newRow.find('.report-subcategory-select'), item.subcategory || '');
-
-                              // Set Test parameter & trigger change for patient details auto-calculation
-                              let testSelect = newRow.find('.test-selector-dynamic');
-                              setSelectValueWithDefault(testSelect, item.name || '');
-                              testSelect.trigger('change');
-
-                              // Override defaults if specified in the template
-                              if (item.unit) {
-                                  setSelectValueWithDefault(newRow.find('.report-unit-select'), item.unit);
-                              }
-                              if (item.normal_value) {
-                                  setSelectValueWithDefault(newRow.find('.normal-val-dynamic'), item.normal_value);
-                              }
-                              if (item.biological_reference) {
-                                  setSelectValueWithDefault(newRow.find('.bio-val-dynamic'), item.biological_reference);
-                              }
-                          });
-
-                          updateRowSlNo(container);
-                          initDynamicSelect2();
+                          showDenyButton: true, showCancelButton: true,
+                          confirmButtonText: 'Add below', denyButtonText: 'Replace existing', cancelButtonText: 'Cancel',
+                          confirmButtonColor: '#0284c7', denyButtonColor: '#d97706',
+                      }).then(function(r) {
+                          if (r.isConfirmed) apply(false);
+                          else if (r.isDenied) apply(true);
                       });
-                  } else {
-                      showToast('This template has no test items.', 'warning');
-                  }
-                  selectDropdown.val('').prop('disabled', false);
-              }).fail(function() {
-                  showToast('Failed to load template.', 'error');
-                  selectDropdown.prop('disabled', false);
-              });
+                  })
+                  .fail(function() { showToast('Failed to load template.', 'error'); })
+                  .always(function() { select.val('').prop('disabled', false); });
           });
 
           $(document).on('click', '.remove-row', function() {
@@ -2479,7 +2579,9 @@
               $.get("/reports/" + id, function(data) {
                   $('#edit-report-id').val(data.id);
                   $('#edit-patient-id').val(data.patient_id).trigger('change');
-                  $('#edit-report-doctor').val(data.doctor_name).trigger('change');
+                  // Keep the saved doctor even if they were removed from the doctor list since.
+                  setSelectValueWithDefault($('#edit-report-doctor'), data.doctor_name || 'Self');
+                  $('#edit-report-doctor').trigger('change');
                   $('#edit-sample-date').val(moment(data.sample_received_on).format('YYYY-MM-DDTHH:mm'));
                   $('#edit-release-date').val(moment(data.report_released_on).format('YYYY-MM-DDTHH:mm'));
                   $('#edit-report-notes').val(data.notes || '');
@@ -2502,8 +2604,12 @@
                           setSelectValueWithDefault(newRow.find('.flag-selector'), item.flag);
                           setSelectValueWithDefault(newRow.find('.normal-val-dynamic'), item.normal_value);
                           setSelectValueWithDefault(newRow.find('.bio-val-dynamic'), item.biological_reference);
+                          newRow.find('.row-lab-test-id').val(item.lab_test_id || '');
+                          newRow.find('.row-panel-name').val(item.panel_name || '');
+                          newRow.find('.row-template-id').val(item.report_template_id || '');
                       });
                       updateRowSlNo(container);
+                      refreshRanges($('#modal-edit-report'), true);
                       initDynamicSelect2();
                   } else {
                       container.append(trTemplate);
@@ -2555,16 +2661,9 @@
                   setDoctor();
                   $(document).one('ajaxStop', setDoctor); // doctor list may still be loading
 
-                  if (PREFILL.tests.length) {
-                      const container = $('#dynamic-tests-container').empty();
-                      PREFILL.tests.forEach(function(name) {
-                          const row = $(trTemplate);
-                          container.append(row);
-                          const testSelect = row.find('.test-selector-dynamic');
-                          setSelectValueWithDefault(testSelect, name);
-                          testSelect.trigger('change');
-                      });
-                      updateRowSlNo('#dynamic-tests-container');
+                  if (PREFILL.rows && PREFILL.rows.length) {
+                      $('#dynamic-tests-container').empty();
+                      addBuilderRows('#dynamic-tests-container', PREFILL.rows);
                   }
               });
               $modal.modal('show');

@@ -250,7 +250,7 @@
 				  }
 			  }
 		  });
-		  $("#subcategory-search").on("keyup", function() {
+		  $("#subcategory-search").on("input", function() {
 			  subcategoriesTable.search($(this).val()).draw();
 		  });
 

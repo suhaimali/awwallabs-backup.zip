@@ -26,7 +26,7 @@ class ReportTemplateController extends Controller
             ->with('billingTests:id,name,price,report_template_id')
             ->orderBy('name')->get();
 
-        $catalog = LabTest::with('parameter:id,lab_test_id,unit,male_reference,female_reference,biological_reference')
+        $catalog = LabTest::with('parameter:id,lab_test_id,unit,male_reference,female_reference,biological_reference,male_min,male_max,female_min,female_max')
             ->orderBy('name')->get(['id', 'name', 'price', 'report_template_id'])
             ->map(fn ($t) => [
                 'id' => $t->id,
@@ -36,14 +36,17 @@ class ReportTemplateController extends Controller
                 'r' => $t->parameter?->male_reference ?: $t->parameter?->biological_reference,
                 'fr' => $t->parameter?->female_reference,
                 'panel' => $t->report_template_id,
+                'mm' => $t->parameter?->male_min, 'mx' => $t->parameter?->male_max,
+                'fm' => $t->parameter?->female_min, 'fx' => $t->parameter?->female_max,
             ])->values();
 
         $departments = ReportTemplate::whereNotNull('department')->distinct()->orderBy('department')->pluck('department')
             ->merge(\App\Models\Category::orderBy('name')->pluck('name'))->unique()->values();
         $units = Unit::orderBy('name')->pluck('name');
         $standardPanels = StandardPanelLibrary::names();
+        $installedPanels = StandardPanelLibrary::installed();
 
-        return view('templates', compact('templates', 'catalog', 'departments', 'units', 'standardPanels'));
+        return view('templates', compact('templates', 'catalog', 'departments', 'units', 'standardPanels', 'installedPanels'));
     }
 
     public function show($id)
@@ -134,6 +137,11 @@ class ReportTemplateController extends Controller
             'items.*.options' => 'nullable|string|max:500',
             'items.*.formula' => 'nullable|string|max:255',
             'items.*.decimals' => 'nullable|integer|min:0|max:6',
+            'items.*.ranges' => 'nullable|array',
+            'items.*.ranges.male_min' => 'nullable|numeric',
+            'items.*.ranges.male_max' => 'nullable|numeric',
+            'items.*.ranges.female_min' => 'nullable|numeric',
+            'items.*.ranges.female_max' => 'nullable|numeric',
         ], [
             'items.required' => 'Add at least one parameter to the panel.',
             'items.*.code.regex' => 'Codes start with a letter and use only letters, digits and _ (e.g. HB, RBC_COUNT).',
@@ -186,6 +194,24 @@ class ReportTemplateController extends Controller
             'is_active' => $data['is_active'] ?? true,
         ])->save();
 
+        // Parameters typed into the panel that don't exist yet become real parameters,
+        // so they can carry reference ranges and be flagged.
+        foreach ($data['items'] as $i => $item) {
+            if ($item['item_type'] !== 'parameter') {
+                continue;
+            }
+            if (empty($item['lab_test_id'])) {
+                $labTest = LabTest::create([
+                    'name' => trim($item['name']),
+                    'price' => 0,
+                    'description' => 'Part of ' . trim($data['name']),
+                    'payment_method' => 'Cash',
+                ]);
+                $data['items'][$i]['lab_test_id'] = $labTest->id;
+            }
+            $this->saveRanges((int) $data['items'][$i]['lab_test_id'], $item);
+        }
+
         $template->items()->delete();
         $template->items()->createMany(collect($data['items'])->values()->map(fn ($item, $i) => [
             'item_type' => $item['item_type'],
@@ -213,5 +239,39 @@ class ReportTemplateController extends Controller
         }
 
         return $template;
+    }
+
+    /** Ranges edited inside the panel builder go to the parameter master (used for flags). */
+    private function saveRanges(int $labTestId, array $item): void
+    {
+        $parameter = \App\Models\TestParameter::firstOrNew(['lab_test_id' => $labTestId]);
+        $text = fn ($min, $max) => ($min !== null && $max !== null) ? "{$min} - {$max}"
+            : ($max !== null ? "< {$max}" : ($min !== null ? "> {$min}" : null));
+        $num = fn ($v) => ($v === null || $v === '') ? null : (float) $v + 0;
+
+        if (empty($parameter->unit) && !empty($item['unit'])) {
+            $parameter->unit = $item['unit'];
+        }
+
+        if (isset($item['ranges']) && is_array($item['ranges'])) {
+            foreach (['male', 'female'] as $sex) {
+                $oldAuto = $text($num($parameter->{"{$sex}_min"}), $num($parameter->{"{$sex}_max"}));
+                foreach (['min', 'max'] as $end) {
+                    if (array_key_exists("{$sex}_{$end}", $item['ranges'])) {
+                        $parameter->{"{$sex}_{$end}"} = $num($item['ranges']["{$sex}_{$end}"]);
+                    }
+                }
+                // Refresh the printed range only if it was generated from the numbers (keep custom wording).
+                $current = $parameter->{"{$sex}_reference"};
+                if ($current === null || $current === '' || $current === $oldAuto) {
+                    $parameter->{"{$sex}_reference"} = $text($num($parameter->{"{$sex}_min"}), $num($parameter->{"{$sex}_max"}));
+                }
+            }
+        }
+
+        if (!$parameter->exists || $parameter->isDirty()) {
+            $parameter->save();
+            \App\Services\ReferenceRangeService::syncDefaultIntervals($parameter);
+        }
     }
 }

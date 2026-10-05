@@ -231,11 +231,27 @@ class HomeController extends Controller
         ];
     }
 
-    private function panelNotes(\Illuminate\Http\Request $request): ?array
+    /**
+     * Interpretation printed under each panel: what was entered, otherwise the panel's default note.
+     */
+    private function panelNotes(\Illuminate\Http\Request $request, array $items = [], ?array $existing = null): ?array
     {
-        $notes = collect($request->input('panel_notes', []))
-            ->map(fn ($n) => trim((string) $n))
-            ->filter(fn ($n, $k) => $n !== '' && trim((string) $k) !== '');
+        $notes = collect($existing ?? [])->merge(
+            collect($request->input('panel_notes', []))->map(fn ($n) => trim((string) $n))
+        )->filter(fn ($n, $k) => $n !== '' && trim((string) $k) !== '');
+
+        $panelIds = collect($items)->pluck('report_template_id')->filter()->unique();
+        if ($panelIds->isNotEmpty()) {
+            \App\Models\ReportTemplate::whereIn('id', $panelIds)->whereNotNull('interpretation')->get(['name', 'interpretation'])
+                ->each(function ($panel) use (&$notes) {
+                    if (!$notes->has($panel->name) && trim((string) $panel->interpretation) !== '') {
+                        $notes->put($panel->name, trim($panel->interpretation));
+                    }
+                });
+        }
+        // Only keep notes for panels that are on the report.
+        $onReport = collect($items)->pluck('panel_name')->filter()->unique();
+        $notes = $notes->filter(fn ($n, $panel) => $onReport->contains($panel));
 
         return $notes->isEmpty() ? null : $notes->all();
     }
@@ -257,7 +273,7 @@ class HomeController extends Controller
                 'barcode' => now()->format('ymd') . random_int(1000, 9999),
                 'status' => $request->status ?? 'Completed',
                 'notes' => $request->notes,
-                'panel_notes' => $this->panelNotes($request),
+                'panel_notes' => $this->panelNotes($request, $items),
                 'report_signature_id' => $signatureId,
             ]);
 
@@ -301,7 +317,7 @@ class HomeController extends Controller
                 'report_released_on' => $request->report_released_on,
                 'status' => $request->status ?? $report->status ?? 'Completed',
                 'notes' => $request->notes,
-                'panel_notes' => $this->panelNotes($request),
+                'panel_notes' => $this->panelNotes($request, $items, $report->panel_notes),
                 'report_signature_id' => $signatureId,
             ]);
             $report->items()->delete();
@@ -844,6 +860,9 @@ class HomeController extends Controller
 
         $startDate = $request->input('start_date', date('Y-m-d'));
         $endDate = $request->input('end_date', date('Y-m-d'));
+        if ($startDate > $endDate) {
+            [$startDate, $endDate] = [$endDate, $startDate]; // dates entered the wrong way round
+        }
 
         $query->whereDate('bill_date', '>=', $startDate)
               ->whereDate('bill_date', '<=', $endDate);
@@ -880,7 +899,7 @@ class HomeController extends Controller
 
         return view('income_report', compact(
             'totalIncome', 'totalTransactions', 'averageTransaction', 
-            'dailyTrend', 'methods', 'recentTransactions'
+            'dailyTrend', 'methods', 'recentTransactions', 'startDate', 'endDate'
         ));
     }
 
@@ -1536,7 +1555,7 @@ class HomeController extends Controller
     {
         $validated = $request->validate([
             'patient_id' => 'required|exists:patients,id',
-        ] + \App\Services\VitalSignService::rules());
+        ] + \App\Services\VitalSignService::rules(), [], \App\Services\VitalSignService::ATTRIBUTES + ['patient_id' => 'patient']);
 
         $validated = \App\Services\VitalSignService::prepare($validated);
 
@@ -1557,7 +1576,7 @@ class HomeController extends Controller
 
         $validated = $request->validate([
             'patient_id' => 'required|exists:patients,id',
-        ] + \App\Services\VitalSignService::rules());
+        ] + \App\Services\VitalSignService::rules(), [], \App\Services\VitalSignService::ATTRIBUTES + ['patient_id' => 'patient']);
 
         $validated = \App\Services\VitalSignService::prepare($validated);
 
@@ -1702,103 +1721,4 @@ class HomeController extends Controller
     {
         return response()->json(\App\Models\Product::orderBy('name')->get());
     }
-
-    // ==========================================
-    // REPORT TEMPLATES MANAGEMENT
-    // ==========================================
-
-    public function templatesIndex()
-    {
-        $templates = \App\Models\ReportTemplate::with('items')->orderBy('name')->get();
-        $labTests = \App\Models\LabTest::with(['parameter', 'referenceIntervals'])->orderBy('name')->get();
-        $units = \App\Models\Unit::orderBy('name')->get();
-        $referenceTemplates = \App\Models\ReferenceTemplate::orderBy('name')->get();
-        return view('templates', compact('templates', 'labTests', 'units', 'referenceTemplates'));
-    }
-
-    public function storeTemplate(\Illuminate\Http\Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255|unique:report_templates,name',
-            'description' => 'nullable|string',
-            'test_name' => 'required|array',
-            'test_name.*' => 'required|string',
-        ]);
-
-        $template = \App\Models\ReportTemplate::create([
-            'name' => $request->name,
-            'description' => $request->description,
-        ]);
-
-        $items = [];
-        foreach ($request->test_name as $i => $name) {
-            $items[] = [
-                'lab_test_id' => $request->lab_test_id[$i] ?? null,
-                'category' => $request->test_category[$i] ?? 'General',
-                'subcategory' => $request->test_subcategory[$i] ?? null,
-                'name' => $name,
-                'unit' => $request->test_unit[$i] ?? null,
-                'normal_value' => $request->normal_value[$i] ?? null,
-                'biological_reference' => $request->biological_reference[$i] ?? null,
-                'sort_order' => $i,
-            ];
-        }
-
-        $template->items()->createMany($items);
-
-        return response()->json(['success' => 'Template created successfully!']);
-    }
-
-    public function getTemplate($id)
-    {
-        $template = \App\Models\ReportTemplate::with('items')->findOrFail($id);
-        return response()->json($template);
-    }
-
-    public function updateTemplate(\Illuminate\Http\Request $request, $id)
-    {
-        $template = \App\Models\ReportTemplate::findOrFail($id);
-
-        $request->validate([
-            'name' => 'required|string|max:255|unique:report_templates,name,' . $id,
-            'description' => 'nullable|string',
-            'test_name' => 'required|array',
-            'test_name.*' => 'required|string',
-        ]);
-
-        $template->update([
-            'name' => $request->name,
-            'description' => $request->description,
-        ]);
-
-        $template->items()->delete();
-
-        $items = [];
-        foreach ($request->test_name as $i => $name) {
-            $items[] = [
-                'lab_test_id' => $request->lab_test_id[$i] ?? null,
-                'category' => $request->test_category[$i] ?? 'General',
-                'subcategory' => $request->test_subcategory[$i] ?? null,
-                'name' => $name,
-                'unit' => $request->test_unit[$i] ?? null,
-                'normal_value' => $request->normal_value[$i] ?? null,
-                'biological_reference' => $request->biological_reference[$i] ?? null,
-                'sort_order' => $i,
-            ];
-        }
-
-        $template->items()->createMany($items);
-
-        return response()->json(['success' => 'Template updated successfully!']);
-    }
-
-    public function deleteTemplate($id)
-    {
-        $template = \App\Models\ReportTemplate::findOrFail($id);
-        $template->delete();
-
-        return response()->json(['success' => 'Template deleted successfully!']);
-    }
 }
-
-

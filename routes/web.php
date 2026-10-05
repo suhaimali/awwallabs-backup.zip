@@ -168,12 +168,14 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/vital-signs/update/{id}', [HomeController::class, 'updateVitalSign'])->name('vital-signs.update');
     Route::delete('/vital-signs/{id}', [HomeController::class, 'deleteVitalSign'])->name('vital-signs.delete');
 
-    // Report Templates Routes
-    Route::get('/templates', [HomeController::class, 'templatesIndex'])->name('templates.index');
-    Route::post('/templates', [HomeController::class, 'storeTemplate'])->name('templates.store');
-    Route::get('/templates/{id}', [HomeController::class, 'getTemplate'])->name('templates.show');
-    Route::put('/templates/{id}', [HomeController::class, 'updateTemplate'])->name('templates.update');
-    Route::delete('/templates/{id}', [HomeController::class, 'deleteTemplate'])->name('templates.delete');
+    // Test panels (report templates)
+    Route::get('/templates', [\App\Http\Controllers\ReportTemplateController::class, 'index'])->name('templates.index');
+    Route::post('/templates', [\App\Http\Controllers\ReportTemplateController::class, 'store'])->name('templates.store');
+    Route::post('/templates/install-standard', [\App\Http\Controllers\ReportTemplateController::class, 'installStandard'])->name('templates.install-standard');
+    Route::get('/templates/{id}', [\App\Http\Controllers\ReportTemplateController::class, 'show'])->whereNumber('id')->name('templates.show');
+    Route::put('/templates/{id}', [\App\Http\Controllers\ReportTemplateController::class, 'update'])->whereNumber('id')->name('templates.update');
+    Route::delete('/templates/{id}', [\App\Http\Controllers\ReportTemplateController::class, 'destroy'])->whereNumber('id')->name('templates.delete');
+    Route::post('/templates/{id}/duplicate', [\App\Http\Controllers\ReportTemplateController::class, 'duplicate'])->whereNumber('id')->name('templates.duplicate');
 
     // Backup Routes
     Route::get('/backups', [\App\Http\Controllers\BackupController::class, 'index'])->name('backups.index');

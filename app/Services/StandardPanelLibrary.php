@@ -19,6 +19,13 @@ class StandardPanelLibrary
         return array_keys(self::panels());
     }
 
+    /** Library panels that are already installed (under their own or the "(Standard)" name). */
+    public static function installed(): array
+    {
+        return array_values(array_filter(self::names(), fn ($n) => ReportTemplate::where('name', $n . ' (Standard)')->exists()
+            || ReportTemplate::where('name', $n)->whereHas('items', fn ($q) => $q->whereNotNull('code'))->exists()));
+    }
+
     /** @return array{created: string[], skipped: string[]} */
     public function install(?array $only = null): array
     {
@@ -29,12 +36,15 @@ class StandardPanelLibrary
             if ($only && !in_array($name, $only, true)) {
                 continue;
             }
-            if (ReportTemplate::where('name', $name)->exists()) {
+            // A lab's own (imported) panel may already use this name: install alongside it.
+            if (in_array($name, self::installed(), true)) {
                 $skipped[] = $name;
                 continue;
             }
+            $installName = ReportTemplate::where('name', $name)->exists() ? $name . ' (Standard)' : $name;
 
-            DB::transaction(function () use ($name, $panel) {
+            DB::transaction(function () use ($installName, $panel) {
+                $name = $installName;
                 $template = ReportTemplate::create([
                     'name' => $name,
                     'department' => $panel['department'],
@@ -98,7 +108,7 @@ class StandardPanelLibrary
                 }
             });
 
-            $created[] = $name;
+            $created[] = $installName;
         }
 
         return ['created' => $created, 'skipped' => $skipped];

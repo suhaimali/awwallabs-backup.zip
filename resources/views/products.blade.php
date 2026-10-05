@@ -116,6 +116,13 @@
                         </tr>
 
                         <!-- Edit Product Modal -->
+
+                    @endforeach
+                </tbody>
+            </table>
+
+            {{-- Per-row dialogs live outside the table: a <div> inside <tbody> breaks the layout --}}
+            @foreach($products as $product)
                         <div class="modal fade modal-aw" id="modal-edit-product-{{ $product->id }}" tabindex="-1" aria-hidden="true">
                             <div class="modal-dialog modal-dialog-centered">
                                 <div class="modal-content">
@@ -156,10 +163,8 @@
                                     </form>
                                 </div>
                             </div>
-                        </div>
-                    @endforeach
-                </tbody>
-            </table>
+                        </div>            @endforeach
+
         </div>
     </div>
 </div>

@@ -120,6 +120,13 @@
                             </td>
                         </tr>
 
+
+                    @endforeach
+                </tbody>
+            </table>
+
+            {{-- Per-row dialogs live outside the table: a <div> inside <tbody> breaks the layout --}}
+            @foreach($receipts as $receipt)
                         <!-- View Purchase Modal -->
                         <div class="modal fade modal-aw" id="modal-view-purchase-{{ $receipt->id }}" tabindex="-1" aria-hidden="true">
                             <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -179,10 +186,8 @@
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    @endforeach
-                </tbody>
-            </table>
+                        </div>            @endforeach
+
         </div>
     </div>
 </div>

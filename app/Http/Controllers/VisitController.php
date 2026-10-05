@@ -23,7 +23,14 @@ class VisitController extends Controller
     {
         $tests = LabTest::orderBy('name')->get(['id', 'name', 'price']);
         $doctors = Doctor::orderBy('name')->get(['id', 'name', 'qualification']);
-        $packages = ReportTemplate::with('items:id,report_template_id,name')->orderBy('name')->get(['id', 'name']);
+        // A package is billed as ONE line (its billing test) and expands into parameters at result entry.
+        $packages = LabTest::whereNotNull('report_template_id')
+            ->whereHas('panel', fn ($q) => $q->where('is_active', true))
+            ->orderBy('name')->get(['id', 'name', 'price', 'report_template_id'])
+            ->unique(fn ($t) => mb_strtolower(trim($t->name)))->values();
+        $panelSizes = \App\Models\ReportTemplateItem::where('item_type', 'parameter')
+            ->whereIn('report_template_id', $packages->pluck('report_template_id'))
+            ->selectRaw('report_template_id, COUNT(*) c')->groupBy('report_template_id')->pluck('c', 'report_template_id');
 
         $patient = $request->filled('patient') ? Patient::find($request->integer('patient')) : null;
 
@@ -31,6 +38,7 @@ class VisitController extends Controller
             'tests' => $tests,
             'doctors' => $doctors,
             'packages' => $packages,
+            'panelSizes' => $panelSizes,
             'preselected' => $patient ? $this->patientSummary($patient) : null,
             'paymentMethods' => BillingService::PAYMENT_METHODS,
         ]);
@@ -95,6 +103,13 @@ class VisitController extends Controller
             'patient.phone' => 'phone',
             'patient.email' => 'email',
         ]);
+
+        $net = collect($validated['tests'])->sum(fn ($t) => max(0, (float) $t['price'] - min((float) ($t['discount'] ?? 0), (float) $t['price'])));
+        if ((float) ($validated['advance_paid'] ?? 0) > round($net, 2) + 0.001) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'advance_paid' => 'Amount received (₹' . number_format((float) $validated['advance_paid'], 2) . ') is more than the bill (₹' . number_format($net, 2) . ').',
+            ]);
+        }
 
         $rows = BillingService::rowsFromRequest(
             array_column($validated['tests'], 'name'),

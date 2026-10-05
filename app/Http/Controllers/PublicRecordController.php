@@ -17,7 +17,8 @@ class PublicRecordController extends Controller
             ->where('public_token', $token)
             ->firstOrFail();
 
-        $grouped = $report->items->groupBy(fn ($item) => strtoupper($item->category ?: 'GENERAL'));
+        // Keep entry order (sort_order) within each department.
+        $grouped = $report->items->sortBy('sort_order')->groupBy(fn ($item) => strtoupper($item->category ?: 'GENERAL'));
 
         return response()
             ->view('public.report', compact('report', 'grouped'))

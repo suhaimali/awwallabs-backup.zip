@@ -50,6 +50,9 @@
                             <a href="{{ route('backups.download', $backup['name']) }}" class="btn btn-sm btn-outline-primary shadow-sm rounded-3">
                                 <i class="fa fa-download"></i> Download
                             </a>
+                            <button class="btn btn-sm btn-outline-warning shadow-sm rounded-3 btn-restore-backup ms-1" data-file="{{ $backup['name'] }}" data-date="{{ $backup['date'] }}" title="Restore this backup">
+                                <i class="fa fa-clock-rotate-left"></i> Restore
+                            </button>
                             <button class="btn btn-sm btn-outline-danger shadow-sm rounded-3 btn-delete-backup ms-1" data-file="{{ $backup['name'] }}">
                                 <i class="fa fa-trash"></i>
                             </button>
@@ -153,6 +156,33 @@ $(document).ready(function() {
                 console.error(xhr.responseText);
                 btn.html(originalHtml).prop('disabled', false);
             }
+        });
+    });
+
+    // Restore a saved backup. Replaces ALL current data, so it must be typed out.
+    $(document).on('click', '.btn-restore-backup', function() {
+        let file = $(this).data('file');
+        let btn = $(this);
+        Swal.fire({
+            icon: 'warning',
+            title: 'Restore this backup?',
+            html: `All current data will be replaced with the backup from <b>${escHtml($(this).data('date'))}</b>.<br>` +
+                  `A safety backup of the current data is taken first.<br><br>Type <b>RESTORE</b> to continue.`,
+            input: 'text',
+            inputPlaceholder: 'RESTORE',
+            showCancelButton: true,
+            confirmButtonText: 'Restore now',
+            confirmButtonColor: '#d97706',
+            preConfirm: v => v === 'RESTORE' || Swal.showValidationMessage('Type RESTORE in capital letters'),
+        }).then(r => {
+            if (!r.isConfirmed) return;
+            btn.html('<i class="fa fa-spinner fa-spin"></i> Restoring...').prop('disabled', true);
+            $.post('{{ url("backups/restore") }}/' + file, { confirm: 'RESTORE', _token: '{{ csrf_token() }}' })
+                .done(res => {
+                    if (res.success) { showToast(res.message, 'success'); setTimeout(() => location.reload(), 1200); }
+                    else { showToast(res.message || 'Restore failed.', 'error'); btn.prop('disabled', false).html('<i class="fa fa-clock-rotate-left"></i> Restore'); }
+                })
+                .fail(xhr => { showToast(xhr.responseJSON?.message || 'Restore failed.', 'error'); btn.prop('disabled', false).html('<i class="fa fa-clock-rotate-left"></i> Restore'); });
         });
     });
 

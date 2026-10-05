@@ -13,7 +13,8 @@
     <meta property="og:title" content="{{ config('app.name', 'SUHAIM SOFT LAB') }} | Advanced Laboratory Information System">
     <meta property="og:description" content="Empower your diagnostic center with our cutting-edge LIMS.">
     <meta property="og:image" content="{{ asset('favicon.svg') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/brand/mark-32.png') }}">
+    <link rel="apple-touch-icon" href="{{ asset('images/brand/mark-180.png') }}">
 
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -1197,7 +1198,7 @@
 <nav class="lnav" id="lnav">
     <div class="container">
         <a href="#" class="lnav-brand">
-            <div class="brand-icon"><i class="fa-solid fa-flask-vial"></i></div>
+            <div class="brand-icon" style="padding:0;overflow:hidden;background:#fff;"><img src="{{ asset('images/brand/mark-64.png') }}" alt="Suhaimsoft Lab" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;background:#fff;"></div>
             {{ config('app.name', 'SUHAIM SOFT LAB') }}
         </a>
         <ul class="lnav-links">
@@ -1615,7 +1616,7 @@
         <div class="row g-5">
             <div class="col-lg-4">
                 <a href="#" class="footer-brand-logo">
-                    <div class="fb-icon"><i class="fa-solid fa-flask-vial"></i></div>
+                    <div class="fb-icon" style="padding:0;overflow:hidden;background:#fff;"><img src="{{ asset('images/brand/mark-64.png') }}" alt="Suhaimsoft Lab" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;background:#fff;"></div>
                     {{ config('app.name', 'SUHAIM SOFT LAB') }}
                 </a>
                 <p>A next-generation Laboratory Information Management System built to streamline diagnostics, automate reports, and elevate clinical patient care.</p>

@@ -47,7 +47,9 @@ class MasterDataAndSystemTest extends TestCase
         $this->actingAs($user)->postJson('/reference-templates', ['name' => '< 5'])->assertOk();
         $this->actingAs($user)->postJson('/flag-templates', ['name' => 'H'])->assertOk();
 
-        $this->actingAs($user)->postJson('/templates', ['name' => 'LFT Panel', 'test_name' => ['SGOT', 'SGPT']])->assertOk();
+        $this->actingAs($user)->postJson('/templates', ['name' => 'LFT Panel', 'items' => [
+            ['item_type' => 'parameter', 'name' => 'SGOT'], ['item_type' => 'parameter', 'name' => 'SGPT'],
+        ]])->assertOk();
         $this->actingAs($user)->getJson('/templates/1')->assertOk()->assertJsonCount(2, 'items');
     }
 

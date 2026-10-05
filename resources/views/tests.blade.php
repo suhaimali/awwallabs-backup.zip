@@ -235,7 +235,7 @@
 				  }
 			  }
 		  });
-		  $("#test-search").on("keyup", function() {
+		  $("#test-search").on("input", function() {
 			  testsTable.search($(this).val()).draw();
 		  });
 

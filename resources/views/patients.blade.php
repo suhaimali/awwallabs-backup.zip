@@ -1134,7 +1134,7 @@
 				  }
 			  }
 		  });
-		  $("#patient-search").on("keyup", function() {
+		  $("#patient-search").on("input", function() {
 			  patientTable.search($(this).val()).draw();
 		  });
 
@@ -1423,7 +1423,7 @@
 				  $('#view-full-name').text(fullName || 'Unknown');
 				  $('#view-patient-id').text(data.patient_id ? data.patient_id.replace('#P-','').replace('#','') : '—');
 				  $('#view-gender').text(data.gender || '—');
-				  $('#view-age').text(data.age ? data.age + ' Yrs' : '—');
+				  $('#view-age').text(data.age !== null && data.age !== undefined ? data.age + ' ' + (data.age_type || 'Years') : '—');
 
 				  // Fields
 				  $('#view-phone').text(data.phone || '—');

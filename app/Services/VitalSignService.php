@@ -21,6 +21,11 @@ class VitalSignService
         ];
     }
 
+    public const ATTRIBUTES = [
+        'temperature' => 'temperature', 'pulse' => 'pulse', 'respiratory_rate' => 'respiratory rate',
+        'blood_pressure' => 'blood pressure (e.g. 120/80)', 'spo2' => 'SpO₂', 'weight' => 'weight', 'height' => 'height',
+    ];
+
     /**
      * Fill defaults and derived values (BMI) on validated vital-sign data.
      */

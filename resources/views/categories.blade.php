@@ -229,7 +229,7 @@
 				  }
 			  }
 		  });
-		  $("#category-search").on("keyup", function() {
+		  $("#category-search").on("input", function() {
 			  categoriesTable.search($(this).val()).draw();
 		  });
 

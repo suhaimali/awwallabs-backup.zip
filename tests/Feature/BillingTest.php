@@ -209,4 +209,20 @@ class BillingTest extends TestCase
         $this->assertSame('Paid', Payment::firstOrFail()->payment_status);
         $this->assertEquals(0, Patient::firstOrFail()->balance);
     }
+
+    public function test_cancelled_tests_are_not_charged(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->postJson('/patients/store', $this->patientPayload(['advance_paid' => 0]))->assertOk();
+        $lipid = Appointment::where('test_name', 'Lipid Profile')->firstOrFail();
+
+        $this->actingAs($user)->postJson('/appointments/update/' . $lipid->id, [
+            'patient_id' => $lipid->patient_id, 'doctor_name' => 'Self', 'test_name' => 'Lipid Profile',
+            'test_price' => 700, 'discount' => 100, 'advance_paid' => 0,
+            'appointment_date' => now()->toDateString(), 'appointment_time' => '10:00', 'status' => 'Cancelled',
+        ])->assertOk();
+
+        $this->assertEquals(300, Payment::firstOrFail()->net_amount, 'only CBC is charged');
+        $this->assertEquals(300, Patient::firstOrFail()->balance);
+    }
 }

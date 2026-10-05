@@ -574,12 +574,49 @@ $(document).ready(function () {
             if (!isA && isB) return 1;
             return a.localeCompare(b);
         });
-        sortedCategories.forEach(cat => {
+        const panelNotes = data.panel_notes || {};
+
+        function drawPanelTitle(title, y) {
+            if (y > footerTop - 30) y = addNewPage();
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.setTextColor(15, 23, 42);
+            doc.text(String(title).toUpperCase(), left + 2, y + 2);
+            return y + 7;
+        }
+
+        function drawPanelNote(text, y) {
+            doc.setFont('helvetica', 'italic');
+            doc.setFontSize(8.5);
+            doc.setTextColor(71, 85, 105);
+            const lines = doc.splitTextToSize(String(text), tableW - 8);
+            lines.forEach(line => {
+                if (y > footerTop - 16) y = addNewPage();
+                doc.text(line, left + 4, y + 2);
+                y += 4.2;
+            });
+            doc.setTextColor(15, 23, 42);
+            return y + 3;
+        }
+
+        sortedCategories.forEach((cat, catIndex) => {
             if (y > footerTop - 35) y = addNewPage();
             y = drawCategoryTitle(cat, y);
 
+            // Department -> panel title -> sub-heading -> results, then the panel's interpretation.
             let lastSubheading = null;
+            let currentPanel = null;
+            const finishPanel = () => {
+                if (currentPanel && panelNotes[currentPanel]) y = drawPanelNote(panelNotes[currentPanel], y + 1);
+            };
             groupedResults[cat].forEach(r => {
+                const panel = (r.panel_name || '').trim() || null;
+                if (panel !== currentPanel) {
+                    finishPanel();
+                    currentPanel = panel;
+                    lastSubheading = null;
+                    if (panel && panel.toUpperCase() !== cat) y = drawPanelTitle(panel, y);
+                }
                 const subheading = (r.subcategory || '').trim();
                 if (subheading && subheading !== lastSubheading) {
                     y = drawCellRow(y, subheading, '', '', '', '', true);
@@ -592,54 +629,43 @@ $(document).ready(function () {
                 const flgVal = r.flag !== null && r.flag !== undefined ? r.flag : '';
                 y = drawCellRow(y, r.name || '', obsVal, r.unit || '', reference, flgVal);
             });
+            finishPanel();
 
-            y += 6;
+            if (catIndex < sortedCategories.length - 1) y += 6; // gap between departments only
         });
 
         // Notes & Signatures
-        if (y > footerTop - 50) y = addNewPage();
-
-        // Separation line above notes
-        doc.setDrawColor(203, 213, 225);
-        doc.setLineWidth(0.5);
-        doc.line(left, y, left + tableW, y);
-        y += 4;
-
-        // Note Box
-        doc.setFillColor(248, 250, 252);
-        doc.setDrawColor(226, 232, 240);
-        doc.setLineWidth(0.25);
-
-        // Left Accent Line for note
-        doc.setFillColor(138, 39, 125);
-
-        const noteBoxW = 170; // Increased from 100 to allow wider notes
-        const noteBoxH = Math.max(20, reportNotes ? (doc.splitTextToSize(reportNotes, noteBoxW - 8).length * 5 + 10) : 20);
-        // Keep the notes clear of the QR code / signature block at the bottom of the page.
-        if (y + 2 + noteBoxH > footerTop - 38) {
-            y = addNewPage();
-        }
-
-        doc.setFillColor(248, 250, 252);
-        doc.rect(left, y + 2, noteBoxW, noteBoxH, 'FD');
-        doc.setFillColor(138, 39, 125);
-        doc.rect(left, y + 2, 1.5, noteBoxH, 'F');
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
-        doc.setTextColor(15, 23, 42);
-        doc.text('NOTES / INTERPRETATION', left + 4, y + 8);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.setTextColor(71, 85, 105);
-
         if (reportNotes) {
+            const noteBoxW = 170;
             const noteLines = doc.splitTextToSize(reportNotes, noteBoxW - 8);
+            const noteBoxH = Math.max(20, noteLines.length * 5 + 10);
+            // Keep the notes clear of the QR code / signature block at the bottom of the page.
+            if (y + 6 + noteBoxH > footerTop - 36) y = addNewPage();
+
+            doc.setDrawColor(203, 213, 225);
+            doc.setLineWidth(0.5);
+            doc.line(left, y, left + tableW, y);
+            y += 4;
+
+            doc.setDrawColor(226, 232, 240);
+            doc.setLineWidth(0.25);
+            doc.setFillColor(248, 250, 252);
+            doc.rect(left, y + 2, noteBoxW, noteBoxH, 'FD');
+            doc.setFillColor(138, 39, 125);
+            doc.rect(left, y + 2, 1.5, noteBoxH, 'F');
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(8.5);
+            doc.setTextColor(15, 23, 42);
+            doc.text('NOTES / INTERPRETATION', left + 4, y + 8);
+
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(9);
+            doc.setTextColor(71, 85, 105);
             doc.text(noteLines, left + 4, y + 14);
-        } else {
-            doc.setFont('helvetica', 'italic');
-            doc.text('No notes provided.', left + 4, y + 14);
+        } else if (y > footerTop - 36) {
+            // No notes: only the signature / QR block needs room.
+            y = addNewPage();
         }
 
         // Signature image and details
@@ -747,7 +773,10 @@ $(document).ready(function () {
         URL.revokeObjectURL(url);
 
         // Open WhatsApp with a pre-filled message
-        const phone = patient.phone ? patient.phone.replace(/\D/g, '') : '';
+        // wa.me needs the full international number; local 10-digit numbers get the lab's country code.
+        let phone = patient.phone ? patient.phone.replace(/\D/g, '') : '';
+        if (phone.length === 11 && phone.startsWith('0')) phone = phone.slice(1);
+        if (phone.length === 10) phone = (window.LAB_COUNTRY_CODE || '91') + phone;
         const msg = encodeURIComponent(`Lab Report for ${patient.first_name} ${patient.last_name} (ID: ${patient.patient_id}).\n\nPlease find your report PDF that has been downloaded. You can attach it manually.`);
         const waUrl = phone
             ? `https://wa.me/${phone}?text=${msg}`

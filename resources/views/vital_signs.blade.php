@@ -499,7 +499,7 @@
         });
 
         // Global search filtering
-        $("#vitals-search").on("keyup", function() {
+        $("#vitals-search").on("input", function() {
             table.search($(this).val()).draw();
         });
 

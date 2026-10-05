@@ -97,6 +97,11 @@ class BillingService
     public function distributeAdvance(Collection $appointments, float $advance): void
     {
         $remaining = max(0, round($advance, 2));
+        // Cancelled tests are not charged and receive no share of the payment.
+        foreach ($appointments->where('status', 'Cancelled') as $cancelled) {
+            $cancelled->forceFill(['advance_paid' => 0, 'balance' => 0])->save();
+        }
+        $appointments = $appointments->where('status', '!=', 'Cancelled')->values();
         $count = $appointments->count();
 
         foreach ($appointments->values() as $i => $appointment) {
@@ -118,6 +123,8 @@ class BillingService
         if ($appointments->isEmpty()) {
             return;
         }
+        // Cancelled tests stay on the bill for the record but are not charged.
+        $appointments = $appointments->where('status', '!=', 'Cancelled');
 
         $total = round($appointments->sum(fn ($a) => (float) $a->test_price), 2);
         $discount = round($appointments->sum(fn ($a) => (float) $a->discount), 2);
@@ -137,7 +144,7 @@ class BillingService
 
     public function recalculatePatient(Patient $patient): void
     {
-        $appointments = $patient->appointments()->get();
+        $appointments = $patient->appointments()->where('status', '!=', 'Cancelled')->get();
 
         $total = round($appointments->sum(fn ($a) => (float) $a->test_price), 2);
         $discount = round($appointments->sum(fn ($a) => (float) $a->discount), 2);
