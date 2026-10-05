@@ -812,10 +812,6 @@ class HomeController extends Controller
 
     public function dailyCollection(\Illuminate\Http\Request $request)
     {
-        if (!$request->session()->get('daily_collection_unlocked')) {
-            return view('daily_collection_unlock');
-        }
-
         $date = $request->input('date', date('Y-m-d'));
         
         $payments = \App\Models\Payment::with('patient')
@@ -844,10 +840,6 @@ class HomeController extends Controller
 
     public function incomeReport(\Illuminate\Http\Request $request)
     {
-        if (!$request->session()->get('income_report_unlocked')) {
-            return view('income_report_unlock');
-        }
-
         $query = \App\Models\Payment::with('patient')->orderBy('bill_date', 'desc');
 
         $startDate = $request->input('start_date', date('Y-m-d'));

@@ -58,7 +58,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/payments', [HomeController::class, 'storePayment'])->name('payments.store');
     Route::get('/payments/{id}', [HomeController::class, 'getPayment'])->name('payments.show');
     Route::post('/payments/{id}/settle', [HomeController::class, 'settlePayment'])->name('payments.settle');
-    Route::put('/payments/{id}', [HomeController::class, 'updatePayment'])->name('payments.update');
+    Route::match(['put', 'post'], '/payments/{id}', [HomeController::class, 'updatePayment'])->name('payments.update');
     Route::delete('/payments/{id}', [HomeController::class, 'deletePayment'])->name('payments.delete');
 
     // Income Report
